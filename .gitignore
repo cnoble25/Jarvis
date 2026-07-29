@@ -1,0 +1,36 @@
+# Environment & Secret files
+.env
+*.env.local
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Large Binary Model Weights (auto-downloaded on boot)
+daemon/tts/assets/*.onnx
+daemon/tts/assets/*.bin
+
+# Build & distribution artifacts
+build/
+devel/
+dist/
+*.egg-info/
+.eggs/
+
+# IDE & Editor folders
+.vscode/
+.idea/
+*.swp
+*~
+
+# Logs & temporary files
+*.log
+/tmp/

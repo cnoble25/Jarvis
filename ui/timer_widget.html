@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jarvis Visual Desktop Timer Widget</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      user-select: none;
+    }
+
+    body {
+      background: transparent;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* Glassmorphic Widget Container */
+    .timer-card {
+      width: 270px;
+      height: 125px;
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      border-radius: 18px;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6), 0 0 20px rgba(99, 102, 241, 0.25);
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.3s ease;
+    }
+
+    .timer-card.expired {
+      border-color: rgba(239, 68, 68, 0.8);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6), 0 0 24px rgba(239, 68, 68, 0.4);
+      animation: pulse-border 1s infinite alternate;
+    }
+
+    @keyframes pulse-border {
+      from { border-color: rgba(239, 68, 68, 0.5); }
+      to { border-color: rgba(239, 68, 68, 1); }
+    }
+
+    /* Top Bar */
+    .timer-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .timer-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #94a3b8;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      max-width: 200px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .timer-icon {
+      color: #818cf8;
+      font-size: 14px;
+    }
+
+    .close-btn {
+      background: transparent;
+      border: none;
+      color: #64748b;
+      font-size: 14px;
+      cursor: pointer;
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      transition: all 0.2s ease;
+    }
+
+    .close-btn:hover {
+      color: #f1f5f9;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    /* Main Time Display */
+    .time-body {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 2px;
+    }
+
+    .time-digits {
+      font-size: 34px;
+      font-weight: 800;
+      color: #f8fafc;
+      letter-spacing: 1px;
+      font-variant-numeric: tabular-nums;
+      text-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
+    }
+
+    .timer-controls {
+      display: flex;
+      gap: 6px;
+    }
+
+    .ctrl-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #cbd5e1;
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 11px;
+      transition: all 0.2s ease;
+    }
+
+    .ctrl-btn:hover {
+      background: rgba(99, 102, 241, 0.3);
+      color: #ffffff;
+      border-color: rgba(129, 140, 248, 0.5);
+    }
+
+    /* Progress Bar */
+    .progress-track {
+      width: 100%;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 6px;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, #6366f1, #a855f7);
+      border-radius: 2px;
+      transition: width 0.3s linear;
+    }
+
+    .timer-card.expired .progress-fill {
+      background: #ef4444;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="timer-card" id="timerCard">
+    <div class="timer-header">
+      <div class="timer-title">
+        <span class="timer-icon">⏱️</span>
+        <span id="timerLabel">Jarvis Timer</span>
+      </div>
+      <button class="close-btn" id="closeBtn" title="Close Timer">✕</button>
+    </div>
+
+    <div class="time-body">
+      <div class="time-digits" id="timeDigits">00:00</div>
+      <div class="timer-controls">
+        <button class="ctrl-btn" id="pauseBtn" title="Pause / Resume">⏸</button>
+      </div>
+    </div>
+
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+  </div>
+
+  <script>
+    let totalSeconds = 60;
+    let remainingSeconds = 60;
+    let isPaused = false;
+    let timerInterval = null;
+
+    const labelEl = document.getElementById('timerLabel');
+    const digitsEl = document.getElementById('timeDigits');
+    const progressEl = document.getElementById('progressFill');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const closeBtn = document.getElementById('closeBtn');
+    const timerCard = document.getElementById('timerCard');
+
+    function formatDigits(sec) {
+      const hrs = Math.floor(sec / 3600);
+      const mins = Math.floor((sec % 3600) / 60);
+      const secs = sec % 60;
+      if (hrs > 0) {
+        return `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      }
+      return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+
+    function updateDisplay() {
+      digitsEl.textContent = formatDigits(remainingSeconds);
+      const pct = totalSeconds > 0 ? (remainingSeconds / totalSeconds) * 100 : 0;
+      progressEl.style.width = pct + '%';
+    }
+
+    function startCountdown(sec, label) {
+      clearInterval(timerInterval);
+      totalSeconds = sec;
+      remainingSeconds = sec;
+      isPaused = false;
+      labelEl.textContent = label || 'Jarvis Timer';
+      timerCard.classList.remove('expired');
+      pauseBtn.textContent = '⏸';
+      updateDisplay();
+
+      timerInterval = setInterval(() => {
+        if (!isPaused && remainingSeconds > 0) {
+          remainingSeconds--;
+          updateDisplay();
+
+          if (remainingSeconds <= 0) {
+            clearInterval(timerInterval);
+            timerCard.classList.add('expired');
+            digitsEl.textContent = '00:00';
+            progressEl.style.width = '0%';
+            
+            if (window.jarvisBridge) {
+              window.jarvisBridge.call_ipc('timer_expired', JSON.stringify({ label: labelEl.textContent }));
+            }
+          }
+        }
+      }, 1000);
+    }
+
+    pauseBtn.addEventListener('click', () => {
+      isPaused = !isPaused;
+      pauseBtn.textContent = isPaused ? '▶' : '⏸';
+    });
+
+    closeBtn.addEventListener('click', () => {
+      clearInterval(timerInterval);
+      if (window.jarvisBridge) {
+        window.jarvisBridge.call_ipc('hide_timer_widget', '{}');
+      }
+    });
+
+    // Function called via Qt QWebEngineView runJavaScript
+    window.initTimerWidget = function(durationSec, labelStr) {
+      startCountdown(durationSec, labelStr);
+    };
+  </script>
+</body>
+</html>

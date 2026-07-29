@@ -1,0 +1,26 @@
+# Jarvis Python AI Assistant Dependencies
+
+# PySide6 GUI & WebEngine UI
+PySide6>=6.5.0
+
+# Audio Capture & VAD
+sounddevice>=0.4.6
+numpy>=1.24.0
+onnxruntime>=1.15.0
+soundfile>=0.12.1
+
+# Speech-to-Text (Local Faster-Whisper)
+faster-whisper>=1.0.0
+
+# Text-to-Speech (Local Kokoro-ONNX)
+kokoro-onnx>=0.3.0
+
+# System Process & Utility Inspection
+psutil>=5.9.0
+
+# Core Utilities & Environment
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+
+# S3 Backup & Cloud Sync
+boto3>=1.28.0

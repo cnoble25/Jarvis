@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Standalone CLI Wrapper for Jarvis Macro Engine (jarvis-macro)
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+VENV_PYTHON="$PROJECT_ROOT/.venv/bin/python"
+
+if [ -f "$VENV_PYTHON" ]; then
+    PYTHON_EXEC="$VENV_PYTHON"
+else
+    PYTHON_EXEC="python3"
+fi
+
+PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH" exec "$PYTHON_EXEC" -c "
+import sys, os
+sys.path.insert(0, '$PROJECT_ROOT')
+from daemon.macros.macro_manager import get_macro_manager
+import argparse
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog='jarvis-macro',
+        description='Jarvis Desktop Macro Engine & Custom Workspaces Manager'
+    )
+    subparsers = parser.add_subparsers(dest='command', help='Command to execute')
+
+    list_parser = subparsers.add_parser('list', help='List all installed user macros')
+
+    run_parser = subparsers.add_parser('run', help='Run a macro by name')
+    run_parser.add_argument('name', help='Name or ID of the macro (e.g. gaming_mode, usual_apps)')
+
+    create_parser = subparsers.add_parser('create', help='Create a new macro')
+    create_parser.add_argument('name', help='Macro name (e.g. gaming_mode)')
+    create_parser.add_argument('--step', '-s', action='append', help='Step/command to run (can be specified multiple times)')
+    create_parser.add_argument('--apps', '-a', help='Comma-separated list of apps/commands')
+    create_parser.add_argument('--dir', '-d', help='Optional working directory (e.g. ~/Documents/Jarvis)')
+
+    add_parser = subparsers.add_parser('add', help='Add a step/command to an existing macro')
+    add_parser.add_argument('name', help='Macro name')
+    add_parser.add_argument('--step', '-s', required=True, help='Step/command to add')
+
+    remove_parser = subparsers.add_parser('remove', help='Remove a step/command from a macro')
+    remove_parser.add_argument('name', help='Macro name')
+    remove_parser.add_argument('--step', '-s', required=True, help='Step/command to remove')
+
+    delete_parser = subparsers.add_parser('delete', help='Delete a macro spec and script')
+    delete_parser.add_argument('name', help='Macro name to delete')
+
+    args = parser.parse_args()
+    mgr = get_macro_manager()
+
+    if args.command == 'list' or not args.command:
+        macros = mgr.list_macros()
+        print(f'\n--- Jarvis Installed Macro Modes ({len(macros)}) ---')
+        if not macros:
+            print('No macros installed yet. Create one with: jarvis-macro create gaming_mode -s steam -s discord')
+        for macro_id, spec in macros.items():
+            steps = spec.get('steps', spec.get('apps', []))
+            steps_str = ' -> '.join([f\"'{s}'\" for s in steps])
+            dir_str = f\" [Dir: {spec.get('directory')}]\" if spec.get('directory') else ''
+            print(f'  • {spec.get(\"name\", macro_id)} ({macro_id}): [{steps_str}]{dir_str}')
+            print(f'    Script: {spec.get(\"script_path\")}')
+        print()
+
+    elif args.command == 'run':
+        res = mgr.run_macro(args.name)
+        if res.get('success'):
+            print(f\"✅ {res.get('spoken_confirmation', 'Macro started.')}\")
+        else:
+            print(f\"❌ Error: {res.get('stderr', 'Failed to run macro.')}\")
+
+    elif args.command == 'create':
+        steps_list = []
+        if args.step:
+            steps_list.extend(args.step)
+        if args.apps:
+            steps_list.extend([a.strip() for a in args.apps.split(',') if a.strip()])
+
+        if not steps_list:
+            print('❌ Error: Must specify at least one --step or --apps flag.')
+            sys.exit(1)
+
+        spec = mgr.save_macro(args.name, steps_list, directory=args.dir)
+        print(f\"✅ Created macro '{spec['name']}' ({spec['id']}) with steps: {spec['steps']}\")
+        print(f\"   Script compiled to: {spec['script_path']}\")
+
+    elif args.command == 'add':
+        spec = mgr.add_step(args.name, args.step)
+        if spec:
+            print(f\"✅ Added step '{args.step}' to macro '{spec['name']}'. Updated steps: {spec['steps']}\")
+
+    elif args.command == 'remove':
+        spec = mgr.remove_step(args.name, args.step)
+        if spec:
+            print(f\"✅ Removed step '{args.step}' from macro '{spec['name']}'. Remaining steps: {spec['steps']}\")
+
+    elif args.command == 'delete':
+        deleted = mgr.delete_macro(args.name)
+        if deleted:
+            print(f\"✅ Deleted macro '{args.name}'\")
+        else:
+            print(f\"❌ Macro '{args.name}' not found.\")
+
+if __name__ == '__main__':
+    main()
+" "$@"

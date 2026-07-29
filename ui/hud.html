@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jarvis Wispr Flow Bottom HUD Overlay Pill</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      user-select: none;
+    }
+
+    body {
+      background: transparent;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* Floating Pill Frame */
+    .hud-pill {
+      width: clamp(340px, 90vw, 520px);
+      height: 52px;
+      background: rgba(15, 19, 28, 0.92);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 26px;
+      padding: 0 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7), 0 0 24px rgba(99, 102, 241, 0.3);
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .hud-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* Waveform Animation */
+    .wave-container {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      height: 20px;
+    }
+
+    .wave-bar {
+      width: 3px;
+      height: 6px;
+      background-color: #6366f1;
+      border-radius: 2px;
+      transition: all 0.2s ease;
+    }
+
+    .wave-container.recording .wave-bar {
+      animation: wave-bounce 1.2s infinite ease-in-out;
+    }
+    .wave-container.recording .wave-bar:nth-child(2) { animation-delay: 0.15s; background-color: #8b5cf6; }
+    .wave-container.recording .wave-bar:nth-child(3) { animation-delay: 0.3s; background-color: #ec4899; }
+    .wave-container.recording .wave-bar:nth-child(4) { animation-delay: 0.45s; background-color: #10b981; }
+
+    @keyframes wave-bounce {
+      0%, 100% { height: 6px; }
+      50% { height: 20px; }
+    }
+
+    .hud-text {
+      color: #f3f4f6;
+      font-size: 14px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .hud-status-chip {
+      background: rgba(236, 72, 153, 0.18);
+      border: 1px solid rgba(236, 72, 153, 0.4);
+      color: #ec4899;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 12px;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      transition: all 0.2s ease;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="hud-pill" id="hud-pill-container">
+    <div class="hud-left">
+      <div class="wave-container recording" id="wave-container">
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+      </div>
+      <div class="hud-text" id="hud-transcript-preview">Listening... Speak your command</div>
+    </div>
+    <div class="hud-status-chip" id="hud-status-chip">🔴 Recording</div>
+  </div>
+
+  <script>
+    // Live HUD IPC Event updates listener
+    function updateHUDState(event, data) {
+      const textEl = document.getElementById("hud-transcript-preview");
+      const chipEl = document.getElementById("hud-status-chip");
+      const waveEl = document.getElementById("wave-container");
+
+      if (!textEl || !chipEl) return;
+
+      if (event === "RECORDING_STARTED") {
+        textEl.textContent = "Listening... Speak your command";
+        chipEl.textContent = "🔴 Recording";
+        chipEl.style.color = "#ec4899";
+        chipEl.style.backgroundColor = "rgba(236, 72, 153, 0.18)";
+        chipEl.style.borderColor = "rgba(236, 72, 153, 0.4)";
+        if (waveEl) waveEl.classList.add("recording");
+      } else if (event === "STT_PREVIEW") {
+        textEl.textContent = (data && data.text) ? data.text : "Transcribing...";
+        chipEl.textContent = "🎙️ Transcribing";
+        if (waveEl) waveEl.classList.add("recording");
+      } else if (event === "AGENT_THINKING") {
+        textEl.textContent = (data && data.text) ? data.text : "Inferring action...";
+        chipEl.textContent = "⚙️ Thinking";
+        chipEl.style.color = "#f59e0b";
+        chipEl.style.backgroundColor = "rgba(245, 158, 11, 0.18)";
+        chipEl.style.borderColor = "rgba(245, 158, 11, 0.4)";
+        if (waveEl) waveEl.classList.remove("recording");
+      } else if (event === "TTS_SPEAKING") {
+        textEl.textContent = (data && data.spoken) ? data.spoken : "Speaking response...";
+        chipEl.textContent = "🔊 Speaking";
+        chipEl.style.color = "#10b981";
+        chipEl.style.backgroundColor = "rgba(16, 185, 129, 0.18)";
+        chipEl.style.borderColor = "rgba(16, 185, 129, 0.4)";
+        if (waveEl) waveEl.classList.add("recording");
+      } else if (event === "IDLE") {
+        textEl.textContent = "Hold [Ctrl + Space] to speak";
+        chipEl.textContent = "🟢 Ready";
+        chipEl.style.color = "#10b981";
+        chipEl.style.backgroundColor = "rgba(16, 185, 129, 0.18)";
+        chipEl.style.borderColor = "rgba(16, 185, 129, 0.4)";
+        if (waveEl) waveEl.classList.remove("recording");
+      }
+    }
+  </script>
+</body>
+</html>

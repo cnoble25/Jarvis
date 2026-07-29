@@ -1,0 +1,459 @@
+[
+  {
+    "id": "take_screenshot",
+    "name": "Take Desktop Screenshot",
+    "version": "1.0.0",
+    "description": "Captures a screenshot of the current screen or active window and saves it to the Pictures directory.",
+    "category": "utility",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    },
+    "execution": {
+      "type": "command_template",
+      "template": "spectacle -b -n || gnome-screenshot -f ~/Pictures/Screenshot_$(date +%Y%m%d_%H%M%S).png || grim ~/Pictures/Screenshot_$(date +%Y%m%d_%H%M%S).png"
+    },
+    "examples": [
+      {
+        "user_prompt": "Take a screenshot",
+        "expected_args": {}
+      },
+      {
+        "user_prompt": "Capture the screen",
+        "expected_args": {}
+      }
+    ],
+    "risk_level": "SAFE",
+    "spoken_confirmation_template": "Took a screenshot and saved it to your Pictures directory."
+  },
+  {
+    "id": "media_play_pause",
+    "name": "Toggle Media Playback",
+    "version": "1.0.0",
+    "description": "Controls audio and video playback (play, pause, stop, toggle) for active MPRIS DBus media players (Spotify, YouTube in Firefox/Chrome, VLC, MPV) with optional player targeting.",
+    "category": "media",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "Playback action: 'play', 'pause', 'stop', 'toggle', 'next', or 'previous'."
+        },
+        "player": {
+          "type": "string",
+          "description": "Target player or app keyword (e.g. 'spotify', 'youtube', 'firefox', 'chrome', 'vlc', 'mpv'). Omit to target all active players."
+        }
+      }
+    },
+    "execution": {
+      "type": "command_template",
+      "template": "builtin_media_control"
+    },
+    "examples": [
+      {
+        "user_prompt": "Pause spotify",
+        "expected_args": {
+          "action": "pause",
+          "player": "spotify"
+        }
+      },
+      {
+        "user_prompt": "Play spotify music",
+        "expected_args": {
+          "action": "play",
+          "player": "spotify"
+        }
+      }
+    ],
+    "risk_level": "SAFE",
+    "spoken_confirmation_template": "Controlled media playback."
+  },
+  {
+    "id": "volume_control",
+    "name": "Adjust Volume",
+    "version": "1.0.0",
+    "description": "Increases, decreases, or mutes master system audio volume on Linux.",
+    "category": "media",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "Volume action: 'up', 'down', or 'mute'."
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
+    "execution": {
+      "type": "command_template",
+      "template": "wpctl set-volume @DEFAULT_AUDIO_SINK@ {action} || pamixer -t || amixer set Master 5%+"
+    },
+    "examples": [
+      {
+        "user_prompt": "Turn up the volume",
+        "expected_args": {
+          "action": "5%+"
+        }
+      }
+    ],
+    "risk_level": "SAFE",
+    "spoken_confirmation_template": "Adjusted audio volume."
+  },
+  {
+    "id": "lock_screen",
+    "name": "Lock Desktop Screen",
+    "version": "1.0.0",
+    "description": "Locks the current desktop session immediately for security.",
+    "category": "system",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    },
+    "execution": {
+      "type": "command_template",
+      "template": "loginctl lock-session || kscreenlocker_greet || xdg-screensaver lock"
+    },
+    "examples": [
+      {
+        "user_prompt": "Lock my computer",
+        "expected_args": {}
+      }
+    ],
+    "risk_level": "SAFE",
+    "spoken_confirmation_template": "Locking your computer screen."
+  },
+  {
+    "id": "system_power_control",
+    "name": "System Power Control (Shutdown / Reboot / Suspend)",
+    "version": "1.0.0",
+    "description": "Powers off, shuts down, reboots, suspends, or locks the system.",
+    "category": "system",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "Power action: 'shutdown' (or 'poweroff'), 'reboot' (or 'restart'), 'suspend', or 'lock'."
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
+    "execution": {
+      "type": "command_template",
+      "template": "builtin_power_control"
+    },
+    "examples": [
+      {
+        "user_prompt": "Shutdown my computer",
+        "expected_args": {
+          "action": "shutdown"
+        }
+      }
+    ],
+    "risk_level": "CRITICAL",
+    "spoken_confirmation_template": "Executing system power command."
+  },
+  {
+    "id": "search_files",
+    "name": "Search Desktop Files",
+    "version": "1.0.0",
+    "description": "Searches for files matching a query name in the user's home folder.",
+    "category": "utility",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "File name pattern or search term."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "execution": {
+      "type": "command_template",
+      "template": "find ~ -maxdepth 4 -iname '*{query}*' 2>/dev/null | head -n 10"
+    },
+    "examples": [
+      {
+        "user_prompt": "Find files named report",
+        "expected_args": {
+          "query": "report"
+        }
+      }
+    ],
+    "risk_level": "SAFE",
+    "spoken_confirmation_template": "Searching for files matching {query}."
+  },
+  {
+    "id": "system_status",
+    "name": "Check System Status",
+    "version": "1.0.0",
+    "description": "Displays current system uptime, RAM memory usage, and CPU information.",
+    "category": "system",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    },
+    "execution": {
+      "type": "command_template",
+      "template": "free -h && uptime"
+    },
+    "examples": [
+      {
+        "user_prompt": "Check system memory",
+        "expected_args": {}
+      }
+    ],
+    "risk_level": "SAFE",
+    "spoken_confirmation_template": "Checked system status."
+  },
+  {
+    "id": "open_terminal",
+    "name": "Open Terminal",
+    "version": "1.0.0",
+    "description": "Launches a new terminal emulator window on the desktop.",
+    "category": "system",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    },
+    "execution": {
+      "type": "command_template",
+      "template": "ptyxis & || alacritty & || konsole & || gnome-terminal &"
+    },
+    "examples": [
+      {
+        "user_prompt": "Open terminal",
+        "expected_args": {}
+      }
+    ],
+    "risk_level": "SAFE",
+    "spoken_confirmation_template": "Opened terminal window."
+  },
+  {
+    "id": "web_search",
+    "name": "Search Web for Information",
+    "version": "1.0.0",
+    "description": "Performs an active web search and returns text snippets into stdout. Use this tool when you need to look up installation commands, package IDs (like Flatpak app IDs), system documentation, or web information before executing terminal commands.",
+    "category": "web",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Search query text (e.g. 'flatpak install discord command flathub')."
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "execution": {
+      "type": "command_template",
+      "template": "builtin_web_search"
+    },
+    "examples": [
+      {
+        "user_prompt": "Search Google for Bazzite Linux",
+        "expected_args": {
+          "query": "Bazzite Linux"
+        }
+      }
+    ],
+    "risk_level": "SAFE",
+    "spoken_confirmation_template": "Searching Google for {query}."
+  },
+  {
+    "id": "update_memory_profile",
+    "name": "Update User Memory Profile",
+    "version": "1.0.0",
+    "description": "Updates or adds a user preference, technical tool, or setting directly into the persistent memory profile (~/.config/jarvis/user_profile.md).",
+    "category": "memory",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "Profile key to update (e.g. 'Preferred IDE / Editors', 'Active Project', 'Preferred Voice')."
+        },
+        "value": {
+          "type": "string",
+          "description": "New value setting (e.g. 'Sublime Text', 'Jarvis AI', 'af_kore')."
+        },
+        "fact": {
+          "type": "string",
+          "description": "Optional direct preference statement (e.g. 'Preferred text editor is Sublime Text')."
+        }
+      }
+    },
+    "execution": {
+      "type": "command_template",
+      "template": "builtin_memory_update"
+    },
+    "examples": [
+      {
+        "user_prompt": "Set my preferred IDE in memory to VS Code",
+        "expected_args": {
+          "key": "Preferred IDE / Editors",
+          "value": "VS Code"
+        }
+      }
+    ],
+    "risk_level": "SAFE",
+    "spoken_confirmation_template": "Updated memory profile: {key} set to {value}."
+  },
+
+  {
+    "id": "get_current_time",
+    "name": "Get Current Time & Date",
+    "version": "1.0.0",
+    "description": "Retrieves current local system time, date, day of week, and ISO timestamp. Use this tool whenever you need to know what time or date it is, or to compute relative durations for timers and focus sessions.",
+    "category": "utilities",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    },
+    "execution": {
+      "type": "command_template",
+      "template": "builtin_get_current_time"
+    },
+    "examples": [
+      {
+        "user_prompt": "What time is it?",
+        "expected_args": {}
+      }
+    ],
+    "risk_level": "SAFE",
+    "spoken_confirmation_template": "Checked current time."
+  },
+  {
+    "id": "execute_terminal_command",
+    "name": "Execute Terminal Command",
+    "version": "1.0.0",
+    "description": "Executes a bash terminal command on the user's system to perform file system operations (creating directories with mkdir, writing files, reading file content with cat/grep, process inspection) when no specialized tool exists.",
+    "category": "system",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "The exact bash command string to execute (e.g. 'mkdir -p ~/Documents/Projects', 'echo \"hello\" > ~/test.txt', 'cat ~/.config/app.conf')."
+        },
+        "explanation": {
+          "type": "string",
+          "description": "Short 1-sentence reason explaining why this shell command is necessary."
+        }
+      },
+      "required": [
+        "command"
+      ]
+    },
+    "execution": {
+      "type": "command_template",
+      "template": "builtin_terminal_command"
+    },
+    "examples": [
+      {
+        "user_prompt": "Create a directory called Projects in my Documents folder",
+        "expected_args": {
+          "command": "mkdir -p ~/Documents/Projects",
+          "explanation": "Creating directory Projects in Documents folder"
+        }
+      }
+    ],
+    "risk_level": "MEDIUM",
+    "spoken_confirmation_template": "Executed terminal command: {command}"
+  },
+  {
+    "id": "macro_control",
+    "name": "Macro & Workspaces Controller",
+    "version": "1.0.0",
+    "description": "Creates, runs, modifies, or lists multi-step desktop automation macros and workspace modes (such as Gaming Mode, Work Mode, or Usual Apps). Steps can be app names, bash commands, or CLI operations (like 'locked-in start -d 2h').",
+    "category": "system",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "Macro action: 'run', 'create', 'add_step', 'remove_step', 'list', or 'delete'."
+        },
+        "macro_name": {
+          "type": "string",
+          "description": "Name or ID of the macro (e.g. 'gaming_mode', 'usual_apps', 'work_mode')."
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of app names or shell commands to run in the macro (e.g. ['steam', 'discord', 'locked-in start -d 2h'])."
+        },
+        "step": {
+          "type": "string",
+          "description": "Single step or command string to add/remove."
+        },
+        "directory": {
+          "type": "string",
+          "description": "Optional working directory path for the macro (e.g. '~/Documents/Jarvis')."
+        }
+      },
+      "required": [
+        "action"
+      ]
+    },
+    "execution": {
+      "type": "command_template",
+      "template": "builtin_macro_control"
+    },
+    "examples": [
+      {
+        "user_prompt": "Start gaming mode",
+        "expected_args": {
+          "action": "run",
+          "macro_name": "gaming_mode"
+        }
+      }
+    ],
+    "risk_level": "SAFE",
+    "spoken_confirmation_template": "Executed macro control."
+  },
+  {
+    "id": "close_app",
+    "name": "Close Desktop Application",
+    "version": "1.0.0",
+    "description": "Closes, terminates, or exits a running desktop application (such as Steam, Spotify, Discord, Firefox, VS Code) by application name.",
+    "category": "system",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "app_name": {
+          "type": "string",
+          "description": "Name of the application to close (e.g. 'steam', 'spotify', 'discord', 'firefox', 'code')."
+        }
+      },
+      "required": [
+        "app_name"
+      ]
+    },
+    "execution": {
+      "type": "command_template",
+      "template": "builtin_close_app"
+    },
+    "examples": [
+      {
+        "user_prompt": "Close Steam",
+        "expected_args": {
+          "app_name": "steam"
+        }
+      }
+    ],
+    "risk_level": "SAFE",
+    "spoken_confirmation_template": "Closed {app_name}."
+  }
+]
