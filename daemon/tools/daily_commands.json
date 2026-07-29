@@ -11,7 +11,7 @@
     },
     "execution": {
       "type": "command_template",
-      "template": "spectacle -b -n || gnome-screenshot -f ~/Pictures/Screenshot_$(date +%Y%m%d_%H%M%S).png || grim ~/Pictures/Screenshot_$(date +%Y%m%d_%H%M%S).png"
+      "template": "grim ~/Pictures/Screenshot_$(date +%Y%m%d_%H%M%S).png || import -window root ~/Pictures/Screenshot_$(date +%Y%m%d_%H%M%S).png || spectacle -b -n"
     },
     "examples": [
       {
