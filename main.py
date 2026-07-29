@@ -102,8 +102,8 @@ class DashboardWindow(QMainWindow):
         index_url = QUrl.fromLocalFile(str(INDEX_HTML_PATH))
         self.web_view.load(index_url)
 
-        # In-app shortcut trigger for Ctrl+Space
-        self.shortcut = QShortcut(QKeySequence("Ctrl+Space"), self)
+        # In-app shortcut trigger for Ctrl+Shift+Space
+        self.shortcut = QShortcut(QKeySequence("Ctrl+Shift+Space"), self)
         self.shortcut.activated.connect(self._on_shortcut_activated)
 
     def _on_shortcut_activated(self):
@@ -226,9 +226,9 @@ class JarvisApplication:
         self.ipc_server = IPCServer(command_handler=self.handle_ipc_command)
         self.ipc_server.start()
 
-        # 4. Global Hotkey Interceptor (Ctrl + Space)
+        # 4. Global Hotkey Interceptor (Ctrl + Shift + Space)
         self.hotkey_interceptor = HotkeyInterceptor(
-            shortcut_str="Ctrl + Space",
+            shortcut_str="Ctrl + Shift + Space",
             on_press_callback=self.on_hotkey_press,
             on_release_callback=self.on_hotkey_release,
             release_buffer_ms=200
@@ -410,7 +410,7 @@ class JarvisApplication:
             self.hud_win.hide_hud()
 
         print("[Jarvis Main] Native Desktop GUI & Wispr Flow HUD ready.")
-        print("[Jarvis Main] Press & hold [Ctrl + Space] anywhere on your computer to talk to Jarvis!")
+        print("[Jarvis Main] Press & hold [Ctrl + Shift + Space] anywhere on your computer to talk to Jarvis!")
 
         sys.exit(self.qt_app.exec())
 

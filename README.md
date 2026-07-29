@@ -6,7 +6,7 @@ A high-performance, voice-first Linux desktop assistant featuring real-time spee
 
 ## 🌟 Key Features
 
-* **Instant Voice Activation**: Hold `Ctrl + Space` anywhere on your system to talk to Jarvis. Uses kernel-level `/dev/input/event*` interception for seamless operation across X11, Wayland, GNOME, and KDE.
+* **Instant Voice Activation**: Hold `Ctrl + Shift + Space` anywhere on your system to talk to Jarvis. Uses kernel-level `/dev/input/event*` interception for seamless operation across X11, Wayland, GNOME, and KDE.
 * **Glassmorphic Floating HUD**: Sleek PySide6 / HTML5 floating HUD pill that pops up at the bottom of your screen during voice sessions.
 * **Anthropic Prompt Caching**: Utilizes Anthropic Claude 3.5 with 5-minute ephemeral prompt caching (`anthropic-beta: prompt-caching-2024-07-31`), reducing system prompt tokens by 90%+ and delivering sub-second response latency.
 * **Privacy-First Local AI Core**:
@@ -121,9 +121,9 @@ python3 main.py
 ```
 
 ### Voice Usage
-1. Press and hold **`Ctrl + Space`** anywhere on your desktop.
+1. Press and hold **`Ctrl + Shift + Space`** anywhere on your desktop.
 2. Speak your command into your microphone.
-3. Release **`Ctrl + Space`**.
+3. Release **`Ctrl + Shift + Space`**.
 
 ---
 

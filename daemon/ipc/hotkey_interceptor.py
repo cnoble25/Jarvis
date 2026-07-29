@@ -68,7 +68,7 @@ def find_keyboard_devices() -> List[str]:
 class HotkeyInterceptor:
     def __init__(
         self,
-        shortcut_str: str = "Ctrl + Space",
+        shortcut_str: str = "Ctrl + Shift + Space",
         on_press_callback: Optional[Callable[[], None]] = None,
         on_release_callback: Optional[Callable[[], None]] = None,
         release_buffer_ms: int = 200
