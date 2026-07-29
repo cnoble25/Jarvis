@@ -25,7 +25,15 @@ from PySide6.QtWebChannel import QWebChannel
 # applications from specifying absolute screen coordinates (move/setGeometry), forcing windows to center.
 # Setting QT_QPA_PLATFORM=xcb gives Qt full authority over absolute screen positioning (x=2300, y=1350).
 os.environ["QT_QPA_PLATFORM"] = "xcb"
-os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--no-sandbox --disable-gpu --disable-software-rasterizer --disable-dev-shm-usage"
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
+    "--no-sandbox "
+    "--disable-gpu "
+    "--disable-software-rasterizer "
+    "--disable-dev-shm-usage "
+    "--disable-webrtc "
+    "--disable-features=WebRtcHideLocalIpsWithMdns,MediaStream,WebRtc "
+    "--disable-desktop-capture"
+)
 os.environ["QT_LOGGING_RULES"] = "*.debug=false;qt.webenginecontext.debug=false"
 
 # Load .env file variables into os.environ at startup
