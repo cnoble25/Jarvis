@@ -69,7 +69,7 @@ def find_keyboard_devices() -> List[str]:
 class HotkeyInterceptor:
     def __init__(
         self,
-        shortcut_str: str = "Ctrl + Shift + Space",
+        shortcut_str: str = "Super + Space",
         on_press_callback: Optional[Callable[[], None]] = None,
         on_release_callback: Optional[Callable[[], None]] = None,
         release_buffer_ms: int = 200
@@ -119,19 +119,19 @@ class HotkeyInterceptor:
 
     def _unbind_system_conflicts(self):
         """
-        Unbinds system-level shortcut conflicts (such as Linux IBus)
-        so pressing Ctrl+Space triggers ONLY Jarvis without popups.
+        Unbinds system-level shortcut conflicts (such as Linux IBus and GNOME switch-input-source)
+        so pressing Super+Space triggers ONLY Jarvis without popups.
         """
         try:
             import subprocess
             subprocess.run(
-                ["gsettings", "set", "org.freedesktop.ibus.general.hotkey", "trigger", "['<Super>space']"],
+                ["gsettings", "set", "org.freedesktop.ibus.general.hotkey", "trigger", "@as []"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=2
             )
             subprocess.run(
-                ["gsettings", "set", "org.gnome.desktop.wm.keybindings", "activate-window-menu", "['<Alt>space']"],
+                ["gsettings", "set", "org.gnome.desktop.wm.keybindings", "switch-input-source", "@as []"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=2
