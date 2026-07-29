@@ -118,8 +118,8 @@ class HotkeyInterceptor:
 
     def _unbind_system_conflicts(self):
         """
-        Unbinds system-level shortcut conflicts (such as Linux IBus / GNOME window menu)
-        so pressing Alt+Space triggers ONLY Jarvis without popups.
+        Unbinds system-level shortcut conflicts (such as Linux IBus)
+        so pressing Ctrl+Space triggers ONLY Jarvis without popups.
         """
         try:
             import subprocess
@@ -130,7 +130,7 @@ class HotkeyInterceptor:
                 timeout=2
             )
             subprocess.run(
-                ["gsettings", "set", "org.gnome.desktop.wm.keybindings", "activate-window-menu", "@as []"],
+                ["gsettings", "set", "org.gnome.desktop.wm.keybindings", "activate-window-menu", "['<Alt>space']"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=2
