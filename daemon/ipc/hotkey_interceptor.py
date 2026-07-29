@@ -39,10 +39,10 @@ KEY_MAP = {
 
 def find_keyboard_devices() -> List[str]:
     """
-    Scans /dev/input/ for active keyboard event devices.
+    Scans /dev/input/by-id/ strictly for physical hardware keyboard event devices.
+    Excludes virtual uinput and GNOME Remote Desktop portal event devices.
     """
     devices = []
-    # Check /dev/input/by-id/ first
     by_id_kbds = glob.glob("/dev/input/by-id/*kbd*") + glob.glob("/dev/input/by-id/*keyboard*")
     for d in by_id_kbds:
         try:
@@ -52,15 +52,16 @@ def find_keyboard_devices() -> List[str]:
         except Exception:
             pass
 
-    # Fallback scan all event devices
-    for event_path in sorted(glob.glob("/dev/input/event*")):
-        if event_path not in devices:
-            try:
-                # Test opening for reading
-                with open(event_path, "rb") as f:
-                    devices.append(event_path)
-            except (PermissionError, OSError):
-                pass
+    # If by-id scan didn't find specific devices, scan event devices safely checking for 'kbd' in name
+    if not devices:
+        for event_path in sorted(glob.glob("/dev/input/by-id/*event*")):
+            if "kbd" in event_path.lower() or "keyboard" in event_path.lower():
+                try:
+                    real_path = os.path.realpath(event_path)
+                    if real_path not in devices:
+                        devices.append(real_path)
+                except Exception:
+                    pass
 
     return devices
 
