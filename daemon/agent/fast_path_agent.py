@@ -37,10 +37,20 @@ class FastPathCreatorAgent:
             tool_args = t.get("tool_args", {})
             spoken = t.get("spoken_response", "")
 
-            if not q or tool == "error" or len(q) < 3:
+            if not q or tool in ["none", "None", "", "error"] or len(q) < 3:
                 continue
 
-            q_norm = q.lower().strip()
+            q_norm = q.lower().strip().rstrip(".!?")
+            
+            # Skip transient / test / conversational queries
+            transient_kws = ["test", "testing", "status", "check", "hello", "hi", "hey", "what", "time", "date", "mode"]
+            if any(kw in q_norm.split() or kw == q_norm for kw in transient_kws):
+                continue
+
+            # Skip single-word queries
+            if len(q_norm.split()) < 2:
+                continue
+
             # Skip compound queries with connectors or punctuation or multiple verbs
             compound_kw = [" and ", " then ", " also ", " plus ", " as well as ", " while ", " but ", " before ", " after ", " with "]
             if any(c in f" {q_norm} " for c in compound_kw) or "," in q_norm or ";" in q_norm:
@@ -55,18 +65,19 @@ class FastPathCreatorAgent:
 
         rules_added = False
         for q_norm, occurrences in query_groups.items():
-            if len(occurrences) < 2:
+            # Require at least 4 consistent repetitions before auto-saving a fast-path shortcut rule
+            if len(occurrences) < 4:
                 continue
 
             tools = [o["tool"] for o in occurrences]
             most_common_tool = max(set(tools), key=tools.count)
             tool_count = tools.count(most_common_tool)
 
-            if tool_count / len(occurrences) >= 0.8:
+            if tool_count / len(occurrences) >= 0.85:
                 sample = next(o for o in occurrences if o["tool"] == most_common_tool)
                 raw_triggers = list(set(o["raw_query"] for o in occurrences))
 
-                action_type = "tool" if most_common_tool != "none" else "static_response"
+                action_type = "tool"
 
                 rule = self.fast_path_mgr.add_learned_rule(
                     triggers=raw_triggers,
