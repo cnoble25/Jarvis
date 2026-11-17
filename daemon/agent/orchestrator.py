@@ -9,10 +9,9 @@ import uuid
 from typing import Dict, Any, Optional, List
 from daemon.tools.registry import ToolRegistry
 from daemon.tools.execution_engine import ExecutionEngine
-from daemon.tts.tts_engine import TTSEngine
 from daemon.memory.transcript_logger import TranscriptLogger
 from daemon.memory.profiler_agent import load_user_profile
-from daemon.providers.base import BaseLLMProvider
+from daemon.providers.base import BaseLLMProvider, BaseTTSProvider
 from daemon.providers.llm.ollama_llm_provider import OllamaLLMProvider
 from daemon.agent.fast_path_manager import FastPathManager
 
@@ -24,7 +23,7 @@ class AgentOrchestrator:
         model_name: str = "llama3.2:1b",
         registry: Optional[ToolRegistry] = None,
         engine: Optional[ExecutionEngine] = None,
-        tts: Optional[TTSEngine] = None,
+        tts: Optional[BaseTTSProvider] = None,
         logger: Optional[TranscriptLogger] = None,
         llm_provider: Optional[BaseLLMProvider] = None,
         max_history_turns: int = 10,
@@ -38,7 +37,8 @@ class AgentOrchestrator:
         
         self.registry = registry if registry is not None else ToolRegistry()
         self.engine = engine if engine is not None else ExecutionEngine(self.registry)
-        self.tts = tts  # Optional: Pass TTSEngine instance
+        self.tts = tts  # Optional: Pass BaseTTSProvider instance
+
         self.logger = logger if logger is not None else TranscriptLogger()
         self.fast_path_manager = fast_path_manager or FastPathManager()
         

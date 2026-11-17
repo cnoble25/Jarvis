@@ -8,6 +8,7 @@ import json
 import urllib.request
 from typing import Dict, Any, List, Optional
 from daemon.providers.base import BaseLLMProvider
+from daemon.providers.factory import ProviderRegistry
 
 
 MODEL_MAPPING = {
@@ -30,6 +31,7 @@ MODEL_MAPPING = {
 }
 
 
+@ProviderRegistry.register_llm("anthropic_llm")
 class AnthropicLLMProvider(BaseLLMProvider):
     def __init__(self, api_key: Optional[str] = None, model_name: str = "claude-haiku-4-5-20251001"):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
@@ -128,9 +130,12 @@ class AnthropicLLMProvider(BaseLLMProvider):
         return {"tool": "none", "args": {}, "spoken_summary": "Unable to connect to Anthropic API."}
 
     def get_provider_info(self) -> Dict[str, Any]:
+        model = getattr(self, "model_name", "claude-haiku-4-5-20251001")
+        models = self.get_available_models() if hasattr(self, "get_available_models") else []
         return {
             "id": "anthropic_llm",
-            "name": f"Anthropic Claude ({self.model_name})",
+            "name": f"Anthropic Claude ({model})",
             "type": "cloud",
-            "model_name": self.model_name
+            "model_name": model,
+            "models": models
         }
