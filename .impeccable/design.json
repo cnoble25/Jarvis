@@ -1,0 +1,652 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-17T21:09:49+00:00",
+  "title": "Design System: Jarvis",
+  "extensions": {
+    "colorMeta": {
+      "ramp-0": {
+        "role": "neutral",
+        "displayName": "Deep Water",
+        "canonical": "#071722",
+        "tonalRamp": [
+          "#071722",
+          "#0e2433",
+          "#122c3c",
+          "#16384a",
+          "#2d5a70",
+          "#5f8796",
+          "#93b4bd",
+          "#e8f2f4"
+        ]
+      },
+      "ramp-1": {
+        "role": "neutral",
+        "displayName": "Rail Water",
+        "canonical": "#0a1c28",
+        "tonalRamp": [
+          "#071722",
+          "#0e2433",
+          "#122c3c",
+          "#16384a",
+          "#2d5a70",
+          "#5f8796",
+          "#93b4bd",
+          "#e8f2f4"
+        ]
+      },
+      "ramp-2": {
+        "role": "neutral",
+        "displayName": "Ground Water",
+        "canonical": "#0e2433",
+        "tonalRamp": [
+          "#071722",
+          "#0e2433",
+          "#122c3c",
+          "#16384a",
+          "#2d5a70",
+          "#5f8796",
+          "#93b4bd",
+          "#e8f2f4"
+        ]
+      },
+      "ramp-3": {
+        "role": "neutral",
+        "displayName": "Raised Water",
+        "canonical": "#122c3c",
+        "tonalRamp": [
+          "#071722",
+          "#0e2433",
+          "#122c3c",
+          "#16384a",
+          "#2d5a70",
+          "#5f8796",
+          "#93b4bd",
+          "#e8f2f4"
+        ]
+      },
+      "ramp-4": {
+        "role": "neutral",
+        "displayName": "Control Water",
+        "canonical": "#16384a",
+        "tonalRamp": [
+          "#071722",
+          "#0e2433",
+          "#122c3c",
+          "#16384a",
+          "#2d5a70",
+          "#5f8796",
+          "#93b4bd",
+          "#e8f2f4"
+        ]
+      },
+      "ramp-5": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "#1f4558",
+        "tonalRamp": [
+          "#071722",
+          "#0e2433",
+          "#122c3c",
+          "#16384a",
+          "#2d5a70",
+          "#5f8796",
+          "#93b4bd",
+          "#e8f2f4"
+        ]
+      },
+      "ramp-6": {
+        "role": "neutral",
+        "displayName": "Edge",
+        "canonical": "#2d5a70",
+        "tonalRamp": [
+          "#071722",
+          "#0e2433",
+          "#122c3c",
+          "#16384a",
+          "#2d5a70",
+          "#5f8796",
+          "#93b4bd",
+          "#e8f2f4"
+        ]
+      },
+      "ramp-7": {
+        "role": "neutral",
+        "displayName": "Mist",
+        "canonical": "#5f8796",
+        "tonalRamp": [
+          "#071722",
+          "#0e2433",
+          "#122c3c",
+          "#16384a",
+          "#2d5a70",
+          "#5f8796",
+          "#93b4bd",
+          "#e8f2f4"
+        ]
+      },
+      "ramp-8": {
+        "role": "neutral",
+        "displayName": "Text Tertiary",
+        "canonical": "#93b4bd",
+        "tonalRamp": [
+          "#071722",
+          "#0e2433",
+          "#122c3c",
+          "#16384a",
+          "#2d5a70",
+          "#5f8796",
+          "#93b4bd",
+          "#e8f2f4"
+        ]
+      },
+      "ramp-9": {
+        "role": "neutral",
+        "displayName": "Text Secondary",
+        "canonical": "#b9d0d6",
+        "tonalRamp": [
+          "#071722",
+          "#0e2433",
+          "#122c3c",
+          "#16384a",
+          "#2d5a70",
+          "#5f8796",
+          "#93b4bd",
+          "#e8f2f4"
+        ]
+      },
+      "ramp-10": {
+        "role": "neutral",
+        "displayName": "Ice Text",
+        "canonical": "#e8f2f4",
+        "tonalRamp": [
+          "#071722",
+          "#0e2433",
+          "#122c3c",
+          "#16384a",
+          "#2d5a70",
+          "#5f8796",
+          "#93b4bd",
+          "#e8f2f4"
+        ]
+      },
+      "control-edge": {
+        "role": "neutral",
+        "displayName": "Control Edge",
+        "canonical": "#4a7686",
+        "tonalRamp": [
+          "#0f2530",
+          "#1d3c48",
+          "#2c5361",
+          "#3b6573",
+          "#4a7686",
+          "#6a919f",
+          "#93b1bb",
+          "#cfe0e5"
+        ]
+      },
+      "silt": {
+        "role": "primary",
+        "displayName": "Silt Cyan",
+        "canonical": "#7fd1d9",
+        "tonalRamp": [
+          "#062029",
+          "#0f3a43",
+          "#1d5c66",
+          "#2f8290",
+          "#4fa9b8",
+          "#7fd1d9",
+          "#9adde3",
+          "#d6f3f5"
+        ]
+      },
+      "silt-deep": {
+        "role": "primary",
+        "displayName": "Silt Deep",
+        "canonical": "#4fa9b8",
+        "tonalRamp": [
+          "#062029",
+          "#0f3a43",
+          "#1d5c66",
+          "#2f8290",
+          "#4fa9b8",
+          "#7fd1d9",
+          "#9adde3",
+          "#d6f3f5"
+        ]
+      },
+      "silt-hover": {
+        "role": "primary",
+        "displayName": "Silt Hover",
+        "canonical": "#9adde3",
+        "tonalRamp": [
+          "#062029",
+          "#0f3a43",
+          "#1d5c66",
+          "#2f8290",
+          "#4fa9b8",
+          "#7fd1d9",
+          "#9adde3",
+          "#d6f3f5"
+        ]
+      },
+      "on-silt": {
+        "role": "primary",
+        "displayName": "On Silt",
+        "canonical": "#062029",
+        "tonalRamp": [
+          "#062029",
+          "#0f3a43",
+          "#1d5c66",
+          "#2f8290",
+          "#4fa9b8",
+          "#7fd1d9",
+          "#9adde3",
+          "#d6f3f5"
+        ]
+      },
+      "sage": {
+        "role": "secondary",
+        "displayName": "Sage Bank",
+        "canonical": "#9fbfb1",
+        "tonalRamp": [
+          "#15211c",
+          "#25362f",
+          "#3a5047",
+          "#527064",
+          "#6f9585",
+          "#9fbfb1",
+          "#bfd5cb",
+          "#e6efeb"
+        ]
+      },
+      "sage-deep": {
+        "role": "secondary",
+        "displayName": "Sage Deep",
+        "canonical": "#6f9585",
+        "tonalRamp": [
+          "#15211c",
+          "#25362f",
+          "#3a5047",
+          "#527064",
+          "#6f9585",
+          "#9fbfb1",
+          "#bfd5cb",
+          "#e6efeb"
+        ]
+      },
+      "outcome-media": {
+        "role": "primary",
+        "displayName": "Media Channel",
+        "canonical": "#5fbac6",
+        "tonalRamp": [
+          "#062029",
+          "#0f3a43",
+          "#1d5c66",
+          "#2f8290",
+          "#5fbac6",
+          "#7fd1d9",
+          "#9adde3",
+          "#d6f3f5"
+        ]
+      },
+      "outcome-apps": {
+        "role": "secondary",
+        "displayName": "Apps Channel",
+        "canonical": "#86ab9b",
+        "tonalRamp": [
+          "#15211c",
+          "#25362f",
+          "#3a5047",
+          "#527064",
+          "#86ab9b",
+          "#9fbfb1",
+          "#bfd5cb",
+          "#e6efeb"
+        ]
+      },
+      "coral": {
+        "role": "tertiary",
+        "displayName": "Delta Coral",
+        "canonical": "#e0786a",
+        "tonalRamp": [
+          "#2a2531",
+          "#4a2c2c",
+          "#7a423f",
+          "#a8574f",
+          "#e0786a",
+          "#ea9184",
+          "#f4a99d",
+          "#fbe0db"
+        ]
+      },
+      "coral-text": {
+        "role": "tertiary",
+        "displayName": "Coral Text",
+        "canonical": "#f4a99d",
+        "tonalRamp": [
+          "#2a2531",
+          "#4a2c2c",
+          "#7a423f",
+          "#a8574f",
+          "#e0786a",
+          "#ea9184",
+          "#f4a99d",
+          "#fbe0db"
+        ]
+      },
+      "coral-ground": {
+        "role": "tertiary",
+        "displayName": "Coral Ground",
+        "canonical": "#2a2531",
+        "tonalRamp": [
+          "#2a2531",
+          "#4a2c2c",
+          "#7a423f",
+          "#a8574f",
+          "#e0786a",
+          "#ea9184",
+          "#f4a99d",
+          "#fbe0db"
+        ]
+      },
+      "coral-edge": {
+        "role": "tertiary",
+        "displayName": "Coral Edge",
+        "canonical": "#7a423f",
+        "tonalRamp": [
+          "#2a2531",
+          "#4a2c2c",
+          "#7a423f",
+          "#a8574f",
+          "#e0786a",
+          "#ea9184",
+          "#f4a99d",
+          "#fbe0db"
+        ]
+      },
+      "amber-text": {
+        "role": "tertiary",
+        "displayName": "Caution Amber",
+        "canonical": "#f1cf8a",
+        "tonalRamp": [
+          "#2c2a26",
+          "#45391f",
+          "#6e5c34",
+          "#9a8048",
+          "#c7a663",
+          "#dcbd78",
+          "#f1cf8a",
+          "#faf0d8"
+        ]
+      },
+      "amber-ground": {
+        "role": "tertiary",
+        "displayName": "Amber Ground",
+        "canonical": "#2c2a26",
+        "tonalRamp": [
+          "#2c2a26",
+          "#45391f",
+          "#6e5c34",
+          "#9a8048",
+          "#c7a663",
+          "#dcbd78",
+          "#f1cf8a",
+          "#faf0d8"
+        ]
+      },
+      "amber-edge": {
+        "role": "tertiary",
+        "displayName": "Amber Edge",
+        "canonical": "#6e5c34",
+        "tonalRamp": [
+          "#2c2a26",
+          "#45391f",
+          "#6e5c34",
+          "#9a8048",
+          "#c7a663",
+          "#dcbd78",
+          "#f1cf8a",
+          "#faf0d8"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The live status word and the latest thing you said."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Page titles."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Section titles, brand, earlier-turn queries, macro names; 400 for the latest reply."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Everything else; prose capped at 62-70ch."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Timestamps, counts, help, field labels, tags, keycaps, fix hints. Sentence case."
+      },
+      "code": {
+        "displayName": "Code",
+        "purpose": "Literal code, command templates and IDs only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "toast-float",
+        "value": "0 8px 24px rgba(3, 12, 18, 0.5)",
+        "purpose": "The only cast shadow; the floating toast."
+      },
+      {
+        "name": "keycap-lip",
+        "value": "0 1px 0 #071722",
+        "purpose": "Physical-key underside on keycaps only."
+      },
+      {
+        "name": "input-focus-ring",
+        "value": "0 0 0 1px #7fd1d9",
+        "purpose": "Doubles the silt border on a focused field."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "The one curve for every transition and animation."
+      },
+      {
+        "name": "state",
+        "value": "160ms",
+        "purpose": "Colour, background and border state changes; disclosure chevron."
+      },
+      {
+        "name": "switch",
+        "value": "180ms",
+        "purpose": "Switch track and knob."
+      },
+      {
+        "name": "toast-in",
+        "value": "220ms",
+        "purpose": "Toast rises 8px and fades in."
+      },
+      {
+        "name": "delta-draw",
+        "value": "900ms, stagger 70ms from 120ms",
+        "purpose": "Channels draw once on render; failed channel never animates."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "transitions 0ms; delta draw and toast entrance removed",
+        "purpose": "prefers-reduced-motion: reduce."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "narrow",
+        "value": "860px"
+      },
+      {
+        "name": "window-min",
+        "value": "720px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Silt-filled commit action; one per form.",
+      "html": "<button class=\"ds-btn ds-btn-primary\">Save command</button>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-btn{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:8px 16px;border:1px solid transparent;border-radius:8px;font:700 0.9375rem/1.55 var(--font);cursor:pointer;transition:background-color 160ms var(--ease-out),border-color 160ms var(--ease-out),color 160ms var(--ease-out)}.ds-btn:focus-visible{outline:2px solid var(--silt);outline-offset:2px}.ds-btn-primary{background:var(--silt);color:var(--on-silt)}.ds-btn-primary:hover{background:var(--silt-hover)}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Control-water button for non-committing actions.",
+      "html": "<button class=\"ds-btn ds-btn-secondary\">Back to editing</button>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-btn{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:8px 16px;border:1px solid transparent;border-radius:8px;font:700 0.9375rem/1.55 var(--font);cursor:pointer;transition:background-color 160ms var(--ease-out),border-color 160ms var(--ease-out),color 160ms var(--ease-out)}.ds-btn:focus-visible{outline:2px solid var(--silt);outline-offset:2px}.ds-btn-secondary{background:var(--ramp-4);border-color:var(--ramp-6);color:var(--ramp-10)}.ds-btn-secondary:hover{background:var(--ramp-5)}"
+    },
+    {
+      "name": "Quiet Button",
+      "kind": "button",
+      "refersTo": "button-quiet",
+      "description": "Unfilled small action for Delete and Retry; hover turns coral.",
+      "html": "<button class=\"ds-btn ds-btn-quiet\">Delete</button>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-btn{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:8px 16px;border:1px solid transparent;border-radius:8px;font:700 0.9375rem/1.55 var(--font);cursor:pointer;transition:background-color 160ms var(--ease-out),border-color 160ms var(--ease-out),color 160ms var(--ease-out)}.ds-btn:focus-visible{outline:2px solid var(--silt);outline-offset:2px}.ds-btn-quiet{background:transparent;color:var(--ramp-9);min-height:30px;padding:4px 12px;font-size:0.8125rem}.ds-btn-quiet:hover{background:var(--ramp-3);color:var(--coral-text)}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Rail-water field with a contrast-floor border; silt on focus.",
+      "html": "<label class=\"ds-field\"><span>Command name</span><input class=\"ds-input\" placeholder=\"Open my notes\"></label>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-field{display:flex;flex-direction:column;gap:4px;font:0.9375rem/1.55 var(--font);color:var(--ramp-10)}.ds-field span{font-size:0.8125rem;font-weight:700;color:var(--ramp-9)}.ds-input{min-height:38px;padding:8px 12px;background:var(--ramp-1);border:1px solid var(--control-edge);border-radius:8px;color:var(--ramp-10);font:inherit;transition:border-color 160ms var(--ease-out)}.ds-input::placeholder{color:var(--ramp-8)}.ds-input:hover{border-color:var(--ramp-7)}.ds-input:focus{outline:none;border-color:var(--silt);box-shadow:0 0 0 1px var(--silt)}"
+    },
+    {
+      "name": "Sidebar Navigation",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Rail items with stroke icons; active is control water with a silt icon.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item is-active\" href=\"#\"><svg viewBox=\"0 0 24 24\"><path d=\"M3 12h4l3-8 4 16 3-8h4\"/></svg>Overview</a><a class=\"ds-nav-item\" href=\"#\"><svg viewBox=\"0 0 24 24\"><path d=\"M4 5h16v11H8l-4 4z\"/></svg>Conversations</a></nav>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-nav{display:flex;flex-direction:column;gap:2px;width:176px;padding:12px;background:var(--ramp-1);font:0.9375rem/1.55 var(--font)}.ds-nav-item{display:flex;align-items:center;gap:12px;min-height:36px;padding:8px 8px 8px 12px;border-radius:8px;color:var(--ramp-9);text-decoration:none;transition:background-color 160ms var(--ease-out),color 160ms var(--ease-out)}.ds-nav-item svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.ds-nav-item:hover{background:var(--ramp-3);color:var(--ramp-10)}.ds-nav-item.is-active{background:var(--ramp-4);color:var(--ramp-10);font-weight:700}.ds-nav-item.is-active svg{stroke:var(--silt)}.ds-nav-item:focus-visible{outline:2px solid var(--silt);outline-offset:2px}"
+    },
+    {
+      "name": "Keycaps",
+      "kind": "custom",
+      "refersTo": "keycap",
+      "description": "The talk shortcut, always rendered as physical keys.",
+      "html": "<span class=\"ds-keys\"><kbd class=\"ds-key\">Super</kbd><span class=\"ds-plus\">+</span><kbd class=\"ds-key\">Space</kbd></span>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-keys{display:inline-flex;align-items:center;gap:4px;font-family:var(--font)}.ds-key{min-width:26px;padding:1px 8px;background:var(--ramp-4);border:1px solid var(--ramp-6);border-radius:5px;box-shadow:0 1px 0 var(--ramp-0);font:700 0.8125rem/1.6 var(--font);color:var(--ramp-10);text-align:center}.ds-plus{font-size:0.8125rem;color:var(--ramp-8)}"
+    },
+    {
+      "name": "Tags",
+      "kind": "chip",
+      "refersTo": "tag",
+      "description": "Outline pills for risk and provenance.",
+      "html": "<span class=\"ds-tags\"><span class=\"ds-tag ds-tag-safe\">Safe</span><span class=\"ds-tag ds-tag-high\">High risk</span><span class=\"ds-tag ds-tag-learned\">Learned</span></span>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-tags{display:inline-flex;gap:8px;font-family:var(--font)}.ds-tag{display:inline-flex;padding:0 8px;border:1px solid var(--ramp-6);border-radius:999px;font-size:0.8125rem;line-height:1.6;color:var(--ramp-9)}.ds-tag-safe{border-color:var(--sage-deep);color:var(--sage)}.ds-tag-high{border-color:var(--coral-edge);color:var(--coral-text)}.ds-tag-learned{border-color:var(--silt-deep);color:var(--silt)}"
+    },
+    {
+      "name": "Error Banner",
+      "kind": "custom",
+      "refersTo": "banner-error",
+      "description": "A failure that carries its fix as in-place actions.",
+      "html": "<div class=\"ds-banner\"><p><strong>Can't reach the model.</strong> Ollama isn't running.</p><button class=\"ds-b2\">Switch model</button><button class=\"ds-b3\">Retry</button></div>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-banner{display:flex;align-items:center;gap:12px;padding:8px 8px 8px 16px;background:var(--coral-ground);border:1px solid var(--coral-edge);border-radius:8px;color:var(--coral-text);font:0.9375rem/1.55 var(--font)}.ds-banner p{flex:1;margin:0}.ds-banner strong{color:var(--ramp-10)}.ds-banner button{min-height:30px;padding:4px 12px;border:1px solid transparent;border-radius:8px;font:700 0.8125rem var(--font);cursor:pointer;transition:background-color 160ms var(--ease-out)}.ds-b2{background:transparent;border-color:var(--coral-edge)!important;color:var(--ramp-10)}.ds-b2:hover{background:var(--coral-edge)}.ds-b3{background:transparent;color:var(--coral-text)}.ds-b3:hover{background:var(--ramp-3)}"
+    },
+    {
+      "name": "Undo Toast",
+      "kind": "custom",
+      "refersTo": "toast",
+      "description": "The only floating element; reversible deletes offer Undo for 6s.",
+      "html": "<div class=\"ds-toast\"><span>Deleted Morning macro.</span><button>Undo</button></div>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-toast{display:flex;align-items:center;gap:16px;max-width:440px;padding:12px 12px 12px 16px;background:var(--ramp-4);border:1px solid var(--ramp-6);border-radius:8px;box-shadow:0 8px 24px rgba(3,12,18,0.5);color:var(--ramp-10);font:0.9375rem/1.55 var(--font)}.ds-toast span{flex:1}.ds-toast button{min-height:30px;padding:0 12px;border:1px solid var(--silt);border-radius:5px;background:transparent;color:var(--silt);font:700 0.9375rem var(--font);cursor:pointer}.ds-toast button:hover{background:var(--ramp-5)}"
+    },
+    {
+      "name": "Delta",
+      "kind": "custom",
+      "refersTo": "delta",
+      "description": "Signature: one square-sourced trunk branching into share-sized, butt-capped outcome channels; failed is coral dashed; mouths filter Conversations.",
+      "html": "<figure class=\"ds-delta\"><svg viewBox=\"0 0 600 120\" preserveAspectRatio=\"none\"><rect class=\"t\" x=\"0\" y=\"47\" width=\"210\" height=\"26\" rx=\"3\"/><path d=\"M209 53 C330 53 360 8 600 8\" stroke=\"#7fd1d9\" stroke-width=\"12\"/><path d=\"M209 64.5 C330 64.5 360 43 600 43\" stroke=\"#5fbac6\" stroke-width=\"7\"/><path d=\"M209 70 C330 70 360 78 600 78\" stroke=\"#9fbfb1\" stroke-width=\"4\"/><path class=\"f\" d=\"M209 72 C330 72 360 112 600 112\" stroke-width=\"3\"/></svg><ul><li style=\"top:7%\"><button><b>12</b>replies</button></li><li style=\"top:36%\"><button><b>7</b>volume &amp; media</button></li><li style=\"top:65%\"><button><b>4</b>timers &amp; focus</button></li><li style=\"top:93%\"><button class=\"is-failed\"><b>3</b>failed</button></li></ul></figure>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-delta{display:grid;grid-template-columns:1fr 170px;margin:0;font:0.8125rem/1.55 var(--font)}.ds-delta svg{width:100%;height:108px;overflow:visible}.ds-delta path{fill:none;stroke-linecap:butt}.ds-delta .t{fill:var(--silt)}.ds-delta .f{stroke:var(--coral);stroke-dasharray:2 7}.ds-delta ul{position:relative;height:108px;margin:0;padding:0;list-style:none}.ds-delta li{position:absolute;left:0;right:0;transform:translateY(-50%)}.ds-delta button{display:flex;gap:8px;align-items:baseline;width:100%;padding:2px 8px;border:0;border-radius:5px;background:transparent;color:var(--ramp-9);font:inherit;text-align:left;cursor:pointer;transition:background-color 160ms var(--ease-out),color 160ms var(--ease-out)}.ds-delta button:hover,.ds-delta button:focus-visible{background:var(--ramp-3);color:var(--ramp-10)}.ds-delta b{min-width:2.2ch;font-size:0.9375rem;color:var(--ramp-10);font-variant-numeric:tabular-nums;text-align:right}.ds-delta .is-failed,.ds-delta .is-failed b{color:var(--coral-text)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The River Delta",
+    "overview": "The dashboard is a Landsat false-colour delta seen from orbit. Deep slate water is the ground, silt-cyan and sage are the channels and banks that carry meaning, ice-white is the type, and coral is the one warm thing on screen: it appears only where something failed or needs the owner. Your voice is the river; the Overview shows where your words went as a delta of real outcomes, not as a grid of metric cards.\n\nThe window is opened, not watched, inside a 920×640 Qt WebEngine frame (720×520 minimum), offline, dark only. Density is calm and list-led: one sidebar, one column of content capped at 880px, hairline-divided rows that lift on hover. Organic curves exist only in data (the delta); everything else is rectilinear with soft 8px corners. One humanist face on a strict five-step ladder carries all hierarchy; weight and size do the work, never colour noise.\n\nDepth is tonal, not cast. Surfaces step up the cold ramp (rail, ground, raised, control) and a single ambient shadow is reserved for the floating toast.",
+    "keyCharacteristics": [
+      "One eleven-step cold tonal ramp supplies every neutral: grounds, hairlines, edges and all three text tiers.",
+      "Each outcome owns one colour everywhere it appears: delta channel, row mark, conversation entry.",
+      "Coral means failure or \"needs you\", and nothing else is warm except the amber warning tier.",
+      "1px hairlines inset to the text column, hidden beside a lifted row.",
+      "Atkinson Hyperlegible at 13 / 15 / 19 / 24 / 30, weights 400 and 700 only.",
+      "Motion is short (160–220ms) ease-out-expo state feedback; the delta draws once on load; reduced motion removes it."
+    ],
+    "rules": [
+      {
+        "name": "The One Ramp Rule",
+        "body": "Every neutral comes from ramp-0..10. The only off-ramp neutral is control-edge, which exists for a contrast floor. Do not introduce greys.",
+        "section": "colors"
+      },
+      {
+        "name": "The Reserved Coral Rule",
+        "body": "Coral and its text/ground/edge family appear only for failure or \"needs you\". A screen where nothing is wrong has no coral on it.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Outcome, One Colour Rule",
+        "body": "An outcome's colour is the same in the delta channel, the legend mouth, the row mark and the conversation entry. Colour never carries an outcome alone: every mark sits beside its text label.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Face, One Ladder Rule",
+        "body": "Only 13 / 15 / 19 / 24 / 30 (ratio about 1.25), only weights 400 and 700. A new size is a new step that must earn its place; do not add an intermediate.",
+        "section": "typography"
+      },
+      {
+        "name": "The Numbers Align Rule",
+        "body": "Counts at delta mouths use tabular numerals, right-aligned.",
+        "section": "typography"
+      },
+      {
+        "name": "The Lift, Not Shadow Rule",
+        "body": "Hover and focus raise a row by tone (to ramp-3), never by a shadow. Hairlines beside a lifted row disappear.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Inset Hairline Rule",
+        "body": "List dividers are 1px ramp-5 lines drawn as a pseudo-element inset 8px on each side, absent on the first item and on either side of a hovered item. Section dividers (settings, disclosure, system list) are full-width 1px ramp-5 borders.",
+        "section": "shapes"
+      },
+      {
+        "name": "The Curves Are Data Rule",
+        "body": "Curves appear only where they encode something. Chrome stays rectilinear.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "Do take every neutral from the ramp-0..10 tokens and use the role it is assigned (rail, ground, raised, control, hairline, edge, three text tiers).",
+      "Do give each outcome its one colour in the delta, row marks and conversation entries, always beside its text label.",
+      "Do keep coral for failure and \"needs you\", and pair every failure with its fix (a banner action, a fix hint, or a Switch model button).",
+      "Do show shortcuts as keycaps and destructive actions as quiet buttons that hide immediately and offer Undo.",
+      "Do separate list items with the 1px inset hairline and lift hovered rows to ramp-3.",
+      "Do keep type on the 13 / 15 / 19 / 24 / 30 ladder in Atkinson Hyperlegible 400/700, mono only for literal code.",
+      "Do keep transitions at 160–220ms on the ease-out-expo curve and honour reduced motion."
+    ],
+    "donts": [
+      "Don't build a metric-card telemetry grid; outcomes are shown as the delta and as conversation rows.",
+      "Don't add cards, nested scroll wells, or shadows on resting surfaces; the toast is the only floating element.",
+      "Don't use curves in chrome; organic shapes belong to data.",
+      "Don't introduce greys, warm neutrals, or a second warm accent outside coral and amber.",
+      "Don't show a state the daemon has not confirmed; prefer an honest unknown.",
+      "Don't convey state or outcome by colour alone."
+    ]
+  }
+}

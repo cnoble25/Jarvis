@@ -3,435 +3,395 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Jarvis Desktop AI Assistant</title>
+  <title>Jarvis</title>
   <link rel="stylesheet" href="css/style.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 </head>
-<body>
+<body data-voice-state="idle">
 
-  <!-- Sidebar Navigation Panel (Fixed 240px) -->
+  <!-- One stroke icon set (1.6px, round caps), drawn for this app. -->
+  <svg class="icon-sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-overview" viewBox="0 0 20 20"><path d="M2 14c3.5-1 5-5 8-5s4 3 8 1"/><path d="M10 9c2-3 4-5 8-6"/></symbol>
+    <symbol id="i-conversations" viewBox="0 0 20 20"><path d="M3 5h10M3 9h14M3 13h8"/><path d="M14 13l3 3v-3"/></symbol>
+    <symbol id="i-commands" viewBox="0 0 20 20"><path d="M4 6l4 4-4 4"/><path d="M10 15h6"/></symbol>
+    <symbol id="i-macros" viewBox="0 0 20 20"><path d="M3 5h5M3 10h9M3 15h14"/><circle cx="11" cy="5" r="1.6"/><circle cx="15" cy="10" r="1.6"/></symbol>
+    <symbol id="i-knows" viewBox="0 0 20 20"><circle cx="10" cy="7" r="3.2"/><path d="M4 17c1.2-3.4 10.8-3.4 12 0"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 20 20"><path d="M3 6h8M15 6h2M3 14h2M9 14h8"/><circle cx="13" cy="6" r="2"/><circle cx="7" cy="14" r="2"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 20 20"><path d="M10 3l8 14H2z"/><path d="M10 8v4M10 14.5v.01"/></symbol>
+  </svg>
+
+  <a class="skip-link" href="#main">Skip to content</a>
+
   <aside class="sidebar">
-    <div class="brand-container">
-      <div class="brand-logo">J</div>
-      <div class="brand-title">Jarvis AI</div>
+    <div class="brand">
+      <span class="brand-name">Jarvis</span>
+      <span class="brand-sub">Voice assistant</span>
     </div>
 
-    <nav class="nav-menu">
-      <div class="nav-item active" data-page="overview-page">
-        <span class="icon">🏠</span>
-        <span>Overview</span>
-      </div>
-      <div class="nav-item" data-page="app-commands-page">
-        <span class="icon">⚡</span>
-        <span>App Commands</span>
-      </div>
-      <div class="nav-item" data-page="memory-page">
-        <span class="icon">🧠</span>
-        <span>Memory Profile</span>
-      </div>
-      <div class="nav-item" data-page="macros-page">
-        <span class="icon">⚡</span>
-        <span>Macros & Workspaces</span>
-      </div>
-      <div class="nav-item" data-page="transcripts-page">
-        <span class="icon">📜</span>
-        <span>Transcript Logs</span>
-      </div>
-      <div class="nav-item" data-page="settings-page">
-        <span class="icon">⚙️</span>
-        <span>Settings</span>
-      </div>
+    <nav class="nav" aria-label="Pages">
+      <button type="button" class="nav-item active" data-page="overview-page" aria-keyshortcuts="Alt+1" title="Alt+1" aria-current="page">
+        <svg class="icon" aria-hidden="true"><use href="#i-overview"/></svg><span>Overview</span>
+      </button>
+      <button type="button" class="nav-item" data-page="conversations-page" aria-keyshortcuts="Alt+2" title="Alt+2">
+        <svg class="icon" aria-hidden="true"><use href="#i-conversations"/></svg><span>Conversations</span>
+      </button>
+      <button type="button" class="nav-item" data-page="commands-page" aria-keyshortcuts="Alt+3" title="Alt+3">
+        <svg class="icon" aria-hidden="true"><use href="#i-commands"/></svg><span>Commands</span>
+      </button>
+      <button type="button" class="nav-item" data-page="macros-page" aria-keyshortcuts="Alt+4" title="Alt+4">
+        <svg class="icon" aria-hidden="true"><use href="#i-macros"/></svg><span>Macros</span>
+      </button>
+      <button type="button" class="nav-item" data-page="knows-page" aria-keyshortcuts="Alt+5" title="Alt+5">
+        <svg class="icon" aria-hidden="true"><use href="#i-knows"/></svg><span>What it knows</span>
+      </button>
+      <button type="button" class="nav-item" data-page="settings-page" aria-keyshortcuts="Alt+6" title="Alt+6">
+        <svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span>
+      </button>
     </nav>
 
-    <div class="sidebar-footer">
-      <div class="status-badge">
-        <div class="status-dot"></div>
-        <span>Daemon Active</span>
-      </div>
+    <div class="sidebar-foot">
+      <p class="sidebar-state"><span class="state-mark" aria-hidden="true"></span><span data-bind="voice-label">Connecting…</span></p>
+      <p id="needs-you" class="needs-you" hidden></p>
     </div>
   </aside>
 
-  <!-- Main Content View Area (Fluid) -->
-  <main class="main-content">
-    
-    <!-- PAGE 1: OVERVIEW & METRICS -->
-    <section id="overview-page" class="page-view active">
-      <div class="page-header">
-        <div>
-          <h1 class="page-title">System Telemetry & Overview</h1>
-          <p class="page-subtitle">Real-time status of your Jarvis desktop voice daemon</p>
+  <main id="main" class="main-content">
+    <div id="connection-banner" class="banner banner-error" role="alert" hidden>
+      <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+      <p>This window can't reach the Jarvis daemon. Close it and start Jarvis again with <code>python3 main.py</code>.</p>
+    </div>
+
+    <!-- ============================== OVERVIEW ============================== -->
+    <section id="overview-page" class="page-view active" aria-labelledby="overview-title">
+      <h1 id="overview-title" class="visually-hidden" tabindex="-1">Overview</h1>
+
+      <div class="status-line">
+        <div class="status-main">
+          <p class="status-label" data-bind="voice-label" aria-live="polite">Connecting…</p>
+          <p class="status-detail"><span data-bind="voice-detail">Waiting for the daemon.</span> <span class="keycaps" data-bind="hotkey"></span></p>
+        </div>
+        <div class="status-model">
+          <label for="overview-model-select">Thinking with</label>
+          <select id="overview-model-select" class="select select-compact"><option>Loading…</option></select>
         </div>
       </div>
 
-      <div class="metrics-grid">
-        <div class="card">
-          <div class="metric-title">TOTAL CONVERSATIONS</div>
-          <div class="metric-value" id="metric-total-turns">142</div>
-          <div class="metric-subtext">Voice interaction turns</div>
-        </div>
-
-        <div class="card">
-          <div class="metric-title">STT ENGINE</div>
-          <div class="metric-value" id="metric-stt-provider">Faster-Whisper</div>
-          <div class="metric-subtext" id="metric-stt-subtext">Local (base.en)</div>
-        </div>
-
-        <div class="card">
-          <div class="metric-title">LLM AGENT ROUTER</div>
-          <div class="metric-value" id="metric-llm-provider">Ollama</div>
-          <div class="metric-subtext" id="metric-model-name">llama3.2:1b</div>
-        </div>
-
-        <div class="card">
-          <div class="metric-title">CLOUD BACKUP</div>
-          <div class="metric-value" id="metric-cloud-status" style="color: var(--accent-emerald);">Connected</div>
-          <div class="metric-subtext">AWS S3 (jarvis-memory-bucket)</div>
+      <div id="llm-warning" class="banner banner-error banner-inline" role="alert" hidden>
+        <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+        <p id="llm-warning-text"></p>
+        <div class="banner-actions">
+          <button type="button" id="btn-switch-model" class="btn btn-secondary btn-small">Switch model</button>
+          <button type="button" id="btn-recheck" class="btn btn-quiet btn-small">Retry</button>
         </div>
       </div>
 
-      <div class="card">
-        <h2 style="font-size: 16px; font-weight: 700; margin-bottom: 16px;">Active Desktop Badges</h2>
-        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-          <span style="background: rgba(16, 185, 129, 0.15); border: 1px solid var(--accent-emerald); color: var(--accent-emerald); padding: 6px 14px; border-radius: 20px; font-weight: 600; font-size: 13px;">🟢 IPC Server Running (/tmp/jarvis.sock)</span>
-          <span style="background: rgba(99, 102, 241, 0.15); border: 1px solid var(--accent-indigo); color: #fff; padding: 6px 14px; border-radius: 20px; font-weight: 600; font-size: 13px;">⌨️ Hold-to-Talk: Ctrl + Space</span>
-          <span style="background: rgba(236, 72, 153, 0.15); border: 1px solid var(--accent-pink); color: var(--accent-pink); padding: 6px 14px; border-radius: 20px; font-weight: 600; font-size: 13px;">🎙️ TTS Voice: af_kore (Kokoro-ONNX)</span>
+      <section class="delta" aria-labelledby="delta-title">
+        <h2 id="delta-title" class="visually-hidden">Where your requests went</h2>
+        <div class="delta-figure">
+          <svg id="delta-svg" class="delta-svg" viewBox="0 0 600 160" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <span class="delta-source" id="delta-source"></span>
+          <ol id="delta-legend" class="delta-legend"></ol>
         </div>
-      </div>
+      </section>
 
-      <div class="card">
-        <h2 style="font-size: 16px; font-weight: 700; margin-bottom: 12px;">Recent Voice Interaction Activity</h2>
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>User Query</th>
-              <th>Executed Tool</th>
-              <th>Spoken Summary</th>
-            </tr>
-          </thead>
-          <tbody id="activity-feed-tbody">
-            <tr>
-              <td>11:36:22</td>
-              <td>Open VS Code</td>
-              <td><span style="background: rgba(99,102,241,0.2); padding: 2px 8px; border-radius: 4px; color: #fff;">app_launcher</span></td>
-              <td>Opening VS Code.</td>
-            </tr>
-            <tr>
-              <td>11:30:10</td>
-              <td>Check Linux kernel version</td>
-              <td><span style="background: rgba(245,158,11,0.2); padding: 2px 8px; border-radius: 4px; color: var(--accent-amber);">Bash</span></td>
-              <td>Running Linux Bazzite.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <section class="latest" aria-labelledby="latest-title">
+        <h2 id="latest-title" class="section-title">Last thing you said</h2>
+        <div id="latest-exchange" class="latest-body">
+          <p class="muted">Loading your conversations…</p>
+        </div>
+      </section>
+
+      <section class="recent" aria-labelledby="recent-title">
+        <div class="section-head">
+          <h2 id="recent-title" class="section-title">Before that</h2>
+          <button type="button" class="link-button" data-goto="conversations-page">All conversations</button>
+        </div>
+        <ol id="recent-rows" class="rows"></ol>
+      </section>
+
+      <section class="system" aria-labelledby="system-title">
+        <h2 id="system-title" class="section-title">Running on this computer</h2>
+        <dl class="system-list">
+          <div><dt>Hearing</dt><dd id="metric-stt-provider">Unknown</dd></div>
+          <div><dt>Voice</dt><dd id="metric-tts-provider">Unknown</dd></div>
+          <div><dt>Script access</dt><dd id="metric-ipc">Unknown</dd></div>
+          <div><dt>Backup</dt><dd id="metric-backup">Unknown</dd></div>
+        </dl>
+      </section>
     </section>
 
-    <!-- PAGE 2: APP COMMANDS BUILDER -->
-    <section id="app-commands-page" class="page-view">
-      <div class="page-header">
-        <div>
-          <h1 class="page-title">App Commands & Custom Tools Builder</h1>
-          <p class="page-subtitle">Register spoken voice shortcuts for desktop applications and shell actions</p>
+    <!-- ============================ CONVERSATIONS =========================== -->
+    <section id="conversations-page" class="page-view" aria-labelledby="conversations-title">
+      <header class="page-header">
+        <h1 id="conversations-title" class="page-title" tabindex="-1">Conversations</h1>
+        <p class="page-intro">Everything you've said to Jarvis on this computer, newest first.</p>
+      </header>
+
+      <div class="toolbar">
+        <div class="field field-grow">
+          <label for="transcript-search">Search</label>
+          <input type="search" id="transcript-search" class="input" placeholder="Words you said, a reply, or a command" autocomplete="off">
         </div>
-      </div>
-
-      <div class="card">
-        <h2 style="font-size: 16px; font-weight: 700; margin-bottom: 16px;">Register New Custom App Command & Tool Manifest</h2>
-        <form id="add-tool-form">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-            <div class="form-group">
-              <label class="form-label">Tool ID (Identifier)</label>
-              <input type="text" id="tool-id-input" class="form-input" placeholder="e.g. take_screenshot or open_discord" required>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Display Name</label>
-              <input type="text" id="tool-name-input" class="form-input" placeholder="e.g. Take Screenshot or Open Discord" required>
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Command Description & Guidelines (Explains to Agent HOW and WHEN to use this command)</label>
-            <textarea id="tool-desc-input" class="form-input" rows="2" placeholder="e.g. Captures a full screen screenshot on Linux desktop and saves it to ~/Pictures." required></textarea>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Executable Shell Command Template</label>
-            <input type="text" id="tool-cmd-input" class="form-input" placeholder="e.g. spectacle -b -n || gnome-screenshot -f ~/Pictures/Screenshot.png" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Usage Examples / Few-Shot Spoken Patterns (Help agent learn invocation patterns)</label>
-            <textarea id="tool-examples-input" class="form-input" rows="2" placeholder='e.g. User: "Take a screenshot" -> Args: {} | User: "Capture screen" -> Args: {}'></textarea>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Spoken Confirmation Feedback Template</label>
-            <input type="text" id="tool-speak-input" class="form-input" placeholder="e.g. Took a screenshot and saved it to Pictures." required>
-          </div>
-          <button type="submit" class="btn btn-primary">➕ Register Custom App Command Manifest</button>
-        </form>
-      </div>
-
-      <div class="card">
-        <h2 style="font-size: 16px; font-weight: 700; margin-bottom: 12px;">Installed App Commands & Custom Tools Manifest</h2>
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Tool ID</th>
-              <th>Name & Description</th>
-              <th>Executable Command</th>
-              <th>Few-Shot Examples / Patterns</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="installed-tools-tbody">
-            <tr>
-              <td><code>app_launcher</code></td>
-              <td>
-                <div style="font-weight: 600; color: #fff;">Launch Desktop Application</div>
-                <div style="font-size: 12px; color: var(--text-secondary);">Launches installed Linux desktop apps (e.g. VS Code, Firefox, Spotify).</div>
-              </td>
-              <td><code>gtk-launch '{app_name}'</code></td>
-              <td><div style="font-size: 12px; color: var(--accent-emerald);">"Open VS Code" -> app_name: "code"</div></td>
-              <td><button class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px;">Test Action</button></td>
-            </tr>
-            <tr>
-              <td><code>take_screenshot</code></td>
-              <td>
-                <div style="font-weight: 600; color: #fff;">Take Desktop Screenshot</div>
-                <div style="font-size: 12px; color: var(--text-secondary);">Captures a screenshot of the current screen and saves to ~/Pictures.</div>
-              </td>
-              <td><code>spectacle -b -n || gnome-screenshot</code></td>
-              <td><div style="font-size: 12px; color: var(--accent-emerald);">"Take a screenshot" -> {}</div></td>
-              <td><button class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px;">Test Action</button></td>
-            </tr>
-            <tr>
-              <td><code>media_play_pause</code></td>
-              <td>
-                <div style="font-weight: 600; color: #fff;">Toggle Media Playback</div>
-                <div style="font-size: 12px; color: var(--text-secondary);">Plays or pauses currently active media (Spotify, browser, videos).</div>
-              </td>
-              <td><code>playerctl play-pause</code></td>
-              <td><div style="font-size: 12px; color: var(--accent-emerald);">"Pause music" -> {}</div></td>
-              <td><button class="btn btn-secondary" style="padding: 4px 10px; font-size: 12px;">Test Action</button></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- PAGE 3: MEMORY PROFILE -->
-    <section id="memory-page" class="page-view">
-      <div class="page-header">
-        <div>
-          <h1 class="page-title">Personalized Memory Profile</h1>
-          <p class="page-subtitle">Extracted preferences and workflow context stored in ~/.config/jarvis/user_profile.md</p>
-        </div>
-        <button id="btn-reanalyze-memory" class="btn btn-primary">🔄 Re-Analyze Transcripts Now</button>
-      </div>
-
-      <div class="card">
-        <h2 style="font-size: 16px; font-weight: 700; margin-bottom: 12px;">Current Learned User Profile</h2>
-        <pre id="profile-md-container" style="background: rgba(0,0,0,0.3); padding: 16px; border-radius: 8px; color: #e5e7eb; font-family: monospace; white-space: pre-wrap; font-size: 13px; border: 1px solid var(--card-border);">
-# User Profile & Personal Preferences
-
-## Technical Environment & Tools
-- Operating System: Bazzite Linux
-- Preferred IDE / Editors: VS Code
-- Primary Programming Languages & Stacks: Python, HTML/CSS, JS
-
-## Frequent Projects & Paths
-- Active Project: Jarvis AI Agent (~/Documents/Jarvis)
-
-## Personalization & Spoken Response Preferences
-- Response Length: 1 sentence max
-- Preferred Voice: af_kore
-        </pre>
-      </div>
-    </section>
-
-    <!-- PAGE 4: TRANSCRIPT LOGS -->
-    <section id="transcripts-page" class="page-view">
-      <div class="page-header">
-        <div>
-          <h1 class="page-title">Voice Interaction Transcript History</h1>
-          <p class="page-subtitle">Chronological log of recorded voice queries and executed tool output</p>
-        </div>
-      </div>
-
-      <div class="card">
-        <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-          <input type="text" id="transcript-search" class="form-input" placeholder="Search transcript query or tool..." style="flex: 1;">
-          <select id="transcript-filter" class="form-select">
-            <option value="all">All Logs</option>
+        <div class="field">
+          <label for="transcript-filter">Show</label>
+          <select id="transcript-filter" class="select">
+            <option value="all">Everything</option>
             <option value="today">Today</option>
-            <option value="s3">Synced to S3</option>
+            <option value="failed">Failed</option>
+            <option value="local">Not backed up</option>
           </select>
         </div>
+      </div>
 
-        <div id="transcript-logs-list" style="display: flex; flex-direction: column; gap: 12px;">
-          <div class="card" style="padding: 14px; background: rgba(255,255,255,0.02);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <span style="font-weight: 700; font-size: 14px; color: #fff;">"Open VS Code in project folder"</span>
-              <span style="background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald); padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;">☁️ Synced to S3</span>
-            </div>
-            <div style="font-size: 12px; color: var(--text-secondary);">Tool: <code>app_launcher</code> | Time: 2026-07-25 11:36:22 | Spoken: "Opening VS Code."</div>
-          </div>
-        </div>
+      <div class="list-block">
+      <p class="list-meta">
+        <span id="transcript-count" aria-live="polite"></span>
+        <span id="category-chip" class="chip" hidden>
+          <span id="category-chip-label"></span>
+          <button type="button" id="category-chip-clear" class="chip-clear" aria-label="Stop filtering by outcome">Clear</button>
+        </span>
+      </p>
+
+      <div id="transcript-logs-list" class="turn-list">
+        <p class="muted">Loading your conversations…</p>
+      </div>
       </div>
     </section>
 
-    <!-- PAGE 5: SETTINGS & KEYBINDS -->
-    <section id="settings-page" class="page-view">
-      <div class="page-header">
-        <div>
-          <h1 class="page-title">System Settings & Keybindings</h1>
-          <p class="page-subtitle">Configure hotkey triggers, voice synthesis models, and S3 credentials</p>
-        </div>
-        <button id="btn-save-settings" class="btn btn-primary">💾 Save All Settings</button>
-      </div>
+    <!-- =============================== COMMANDS ============================= -->
+    <section id="commands-page" class="page-view" aria-labelledby="commands-title">
+      <header class="page-header">
+        <h1 id="commands-title" class="page-title" tabindex="-1">Commands</h1>
+        <p class="page-intro">Things Jarvis can do on this computer. When what you say matches a command, Jarvis runs it.</p>
+      </header>
 
-      <div class="card">
-        <h2 style="font-size: 16px; font-weight: 700; margin-bottom: 12px;">Hold-to-Talk Hotkey Configurator</h2>
-        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">Click below to record your global shortcut key combination:</p>
-        <div id="keybind-recorder" class="keybind-box">
-          <div>
-            <span style="font-weight: 600; font-size: 14px; color: #fff;">Hold-to-Talk Shortcut</span>
-            <div style="font-size: 12px; color: var(--text-secondary);">Press key combination to record new binding</div>
-          </div>
-          <span id="active-keybind-display" class="keybind-badge">Ctrl + Space</span>
-        </div>
-      </div>
-
-      <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <div>
-            <h2 style="font-size: 16px; font-weight: 700;">⚡ Dynamic & System Fast-Path Voice Shortcuts</h2>
-            <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">Zero-latency voice query shortcuts learned from memory profiling or built into system defaults</p>
-          </div>
-          <button id="btn-refresh-fastpaths" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;">🔄 Refresh Rules</button>
-        </div>
-        <div id="fast-path-rules-list" style="display: flex; flex-direction: column; gap: 10px;">
-          <div style="font-size: 13px; color: var(--text-secondary);">Loading fast-path shortcuts...</div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2 style="font-size: 16px; font-weight: 700; margin-bottom: 16px;">Pluggable AI Engine Providers (STT / LLM / TTS)</h2>
-        <div class="form-group">
-          <label class="form-label">Speech-to-Text (STT) Engine</label>
-          <select id="setting-stt-provider" class="form-select">
-            <option value="faster_whisper" selected>Faster-Whisper (Local CPU/GPU - Default)</option>
-            <option value="gemini_stt">Google Gemini Multimodal Audio (Cloud API)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">LLM Orchestrator Engine</label>
-          <select id="setting-llm-provider" class="form-select">
-            <option value="anthropic_llm:claude-haiku-4-5-20251001">Anthropic Claude 4.5 Haiku (Ultra Fast Cloud - Default)</option>
-            <option value="anthropic_llm:claude-3-5-haiku-20241022">Anthropic Claude 3.5 Haiku (Ultra Fast Cloud)</option>
-            <option value="anthropic_llm:claude-3-haiku-20240307">Anthropic Claude 3 Haiku (Low Latency)</option>
-            <option value="ollama:qwen2.5:3b">Ollama (Local Qwen 2.5 3B - Ultra Fast & Low Latency)</option>
-            <option value="ollama:qwen3.5:9b">Ollama (Local Qwen 3.5 9B - High Intelligence)</option>
-            <option value="ollama:llama3.2:1b">Ollama (Local Llama 3.2 1B - Low Latency)</option>
-            <option value="gemini_llm:gemini-3.6-flash">Google Gemini 3.6 Flash (Current Workhorse & High Efficiency)</option>
-            <option value="gemini_llm:gemini-3.5-flash-lite">Google Gemini 3.5 Flash-Lite (Lowest Latency & High Volume)</option>
-            <option value="gemini_llm:gemini-2.0-flash">Google Gemini 2.0 Flash (Fastest Previous Gen)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Memory Profiler & Fast-Path Agent Engine</label>
-          <select id="setting-memory-llm-provider" class="form-select">
-            <option value="inherit" selected>Inherit Main LLM Engine (Default)</option>
-            <option value="anthropic_llm:claude-haiku-4-5-20251001">Anthropic Claude 4.5 Haiku (Offload Memory to Cloud)</option>
-            <option value="gemini_llm:gemini-3.5-flash-lite">Google Gemini 3.5 Flash-Lite (Offload Memory to Cloud)</option>
-            <option value="gemini_llm:gemini-2.0-flash">Google Gemini 2.0 Flash (Offload Memory to Cloud)</option>
-            <option value="ollama:qwen2.5:3b">Ollama (Local Qwen 2.5 3B)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Text-to-Speech (TTS) Engine</label>
-          <select id="setting-tts-provider" class="form-select">
-            <option value="kokoro" selected>Kokoro-ONNX (Local Voice)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Anthropic Claude API Key (Required for Anthropic Haiku Models)</label>
-          <input type="password" id="setting-anthropic-key" class="form-input" placeholder="sk-ant-api... (Saved to ~/.config/jarvis/settings.json)">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Google Gemini API Key (Required for Gemini Providers)</label>
-          <input type="password" id="setting-gemini-key" class="form-input" placeholder="AIzaSy... (Saved to ~/.config/jarvis/settings.json)">
-        </div>
-      </div>
-
-      <div class="card">
-        <h2 style="font-size: 16px; font-weight: 700; margin-bottom: 16px;">Voice & Audio Synthesis Settings (Kokoro-ONNX)</h2>
-        <div class="form-group">
-          <label class="form-label">TTS Voice Model</label>
-          <select id="setting-voice-select" class="form-select">
-            <option value="af_kore" selected>af_kore (Korean-American Female - Default)</option>
-            <option value="af_bella">af_bella (American Female)</option>
-            <option value="am_adam">am_adam (American Male)</option>
-          </select>
-        </div>
-        <button id="btn-test-voice" class="btn btn-secondary">🔊 Test Selected Voice</button>
-      </div>
-
-      <div class="card">
-        <h2 style="font-size: 16px; font-weight: 700; margin-bottom: 16px;">AWS S3 Cloud Backup Settings</h2>
-        <div class="form-group">
-          <label class="form-label">JARVIS_S3_BUCKET_ARN</label>
-          <input type="text" id="setting-s3-arn" class="form-input" value="arn:aws:s3:::jarvis-memory-bucket">
-        </div>
-        <div class="form-group">
-          <label class="form-label">AWS Region</label>
-          <input type="text" id="setting-s3-region" class="form-input" value="us-east-1">
-        </div>
-      </div>
-    </section>
-
-    <!-- PAGE: MACROS & WORKSPACES -->
-    <section id="macros-page" class="page-view">
-      <div class="page-header">
-        <div>
-          <h1 class="page-title">Macros & Desktop Workspaces</h1>
-          <p class="page-subtitle">Configure multi-step modes (Gaming Mode, Work Mode, Usual Apps) compiled to sub-millisecond shell scripts</p>
-        </div>
-      </div>
-
-      <div class="card" style="margin-bottom: 24px;">
-        <h2 style="font-size: 16px; font-weight: 700; margin-bottom: 16px;">Create New Macro Mode</h2>
-        <form id="create-macro-form">
-          <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 16px; margin-bottom: 16px;">
-            <div>
-              <label class="form-label">Macro Name</label>
-              <input type="text" id="macro-name-input" class="form-input" placeholder="e.g. gaming_mode, usual_apps" required>
+      <details class="disclosure" id="add-command">
+        <summary>Add a command</summary>
+        <form id="add-tool-form" class="form" novalidate>
+          <div class="form-grid">
+            <div class="field">
+              <label for="tool-name-input">Name</label>
+              <input type="text" id="tool-name-input" class="input" placeholder="Take a screenshot" required>
             </div>
-            <div>
-              <label class="form-label">Steps / Bash Commands (Comma or pipe separated)</label>
-              <input type="text" id="macro-steps-input" class="form-input" placeholder="e.g. steam | discord | locked-in start -d 2h | wpctl set-volume @DEFAULT_AUDIO_SINK@ 80%" required>
+            <div class="field">
+              <label for="tool-id-input">ID</label>
+              <input type="text" id="tool-id-input" class="input input-code" placeholder="take_screenshot" required aria-describedby="tool-id-help">
+              <p class="help" id="tool-id-help">Lowercase letters, numbers and underscores.</p>
             </div>
           </div>
-          <div style="display: flex; gap: 12px; align-items: center;">
-            <input type="text" id="macro-dir-input" class="form-input" placeholder="Optional Working Directory (e.g. ~/Documents/Jarvis)" style="flex: 1;">
-            <button type="submit" class="btn btn-primary">⚡ Save & Compile Macro Script</button>
+          <div class="field">
+            <label for="tool-desc-input">When should Jarvis use it?</label>
+            <textarea id="tool-desc-input" class="input" rows="2" placeholder="Captures the whole screen and saves it to ~/Pictures." required></textarea>
           </div>
+          <div class="field">
+            <label for="tool-cmd-input">Shell command</label>
+            <input type="text" id="tool-cmd-input" class="input input-code" placeholder="spectacle -b -n || gnome-screenshot" required aria-describedby="tool-cmd-help">
+            <p class="help" id="tool-cmd-help">Runs as you, exactly as written. You'll review it before it's saved.</p>
+          </div>
+          <div class="field">
+            <label for="tool-examples-input">Things you might say</label>
+            <textarea id="tool-examples-input" class="input" rows="3" placeholder="Take a screenshot&#10;Capture my screen" aria-describedby="tool-examples-help"></textarea>
+            <p class="help" id="tool-examples-help">One per line. These teach Jarvis when to pick this command.</p>
+          </div>
+          <div class="form-grid">
+            <div class="field">
+              <label for="tool-speak-input">What Jarvis says after</label>
+              <input type="text" id="tool-speak-input" class="input" placeholder="Saved a screenshot to Pictures." required>
+            </div>
+            <div class="field">
+              <label for="tool-risk-input">Risk</label>
+              <select id="tool-risk-input" class="select" aria-describedby="tool-risk-help">
+                <option value="SAFE">Safe: read-only or easy to undo</option>
+                <option value="MEDIUM" selected>Medium: changes something</option>
+                <option value="HIGH">High: can lose work or data</option>
+              </select>
+              <p class="help" id="tool-risk-help">Tells Jarvis how careful to be.</p>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary">Review command</button>
         </form>
-      </div>
 
-      <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <h2 style="font-size: 16px; font-weight: 700; margin: 0;">Installed Macro Modes</h2>
-          <span style="font-size: 12px; color: var(--text-secondary);">Stored under ~/.config/jarvis/macros/</span>
+        <section id="tool-preview" class="preview" aria-labelledby="tool-preview-title" hidden>
+          <h2 id="tool-preview-title" class="preview-title">Check before saving</h2>
+          <dl class="preview-list">
+            <div><dt>ID</dt><dd><code id="tool-preview-id"></code></dd></div>
+            <div><dt>Runs</dt><dd><code id="tool-preview-command"></code></dd></div>
+            <div><dt>Risk</dt><dd id="tool-preview-risk"></dd></div>
+            <div><dt>You might say</dt><dd id="tool-preview-examples"></dd></div>
+          </dl>
+          <p id="tool-preview-exists" class="banner banner-warn" hidden>A command with this ID already exists. Saving replaces it.</p>
+          <div class="button-row">
+            <button type="button" id="btn-tool-confirm" class="btn btn-primary">Save command</button>
+            <button type="button" id="btn-tool-edit" class="btn btn-secondary">Back to editing</button>
+          </div>
+        </section>
+      </details>
+
+      <section aria-labelledby="tools-title">
+        <div class="section-head">
+          <h2 id="tools-title" class="section-title">Your commands <span id="tool-count" class="count"></span></h2>
         </div>
-        <div id="macros-container-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px;">
-          <div style="color: var(--text-secondary);">Loading installed desktop macros...</div>
+        <div id="installed-tools-list" class="tool-list">
+          <p class="muted">Loading commands…</p>
         </div>
-      </div>
+      </section>
     </section>
 
+    <!-- ================================ MACROS =============================== -->
+    <section id="macros-page" class="page-view" aria-labelledby="macros-title">
+      <header class="page-header">
+        <h1 id="macros-title" class="page-title" tabindex="-1">Macros</h1>
+        <p class="page-intro">Several steps under one name. Say “start movie mode” and Jarvis runs every step in order.</p>
+      </header>
+
+      <details class="disclosure">
+        <summary>New macro</summary>
+        <form id="create-macro-form" class="form" novalidate>
+          <div class="field">
+            <label for="macro-name-input">Name</label>
+            <input type="text" id="macro-name-input" class="input" placeholder="Gaming mode" required>
+          </div>
+          <div class="field">
+            <label for="macro-steps-input">Steps</label>
+            <textarea id="macro-steps-input" class="input input-code" rows="4" placeholder="steam&#10;discord&#10;wpctl set-volume @DEFAULT_AUDIO_SINK@ 80%" required aria-describedby="macro-steps-help"></textarea>
+            <p class="help" id="macro-steps-help">One shell command per line, run top to bottom.</p>
+          </div>
+          <div class="field">
+            <label for="macro-dir-input">Run in folder <span class="optional">(optional)</span></label>
+            <input type="text" id="macro-dir-input" class="input input-code" placeholder="~/Documents/Jarvis">
+          </div>
+          <button type="submit" class="btn btn-primary">Save macro</button>
+        </form>
+      </details>
+
+      <section aria-labelledby="macros-list-title">
+        <h2 id="macros-list-title" class="section-title">Your macros</h2>
+        <div id="macros-container-grid" class="macro-list">
+          <p class="muted">Loading macros…</p>
+        </div>
+      </section>
+    </section>
+
+    <!-- ============================ WHAT IT KNOWS ============================ -->
+    <section id="knows-page" class="page-view" aria-labelledby="knows-title">
+      <header class="page-header">
+        <h1 id="knows-title" class="page-title" tabindex="-1">What Jarvis knows</h1>
+        <p class="page-intro">What it has learned from your conversations. Nothing here leaves this computer unless backup is on.</p>
+      </header>
+
+      <section aria-labelledby="profile-title">
+        <div class="section-head">
+          <h2 id="profile-title" class="section-title">About you</h2>
+          <button type="button" id="btn-reanalyze-memory" class="btn btn-secondary btn-small">Re-analyze conversations</button>
+        </div>
+        <p class="help">Jarvis rewrites this every 50 conversations. Saved in <code>~/.config/jarvis/user_profile.md</code>.</p>
+        <div id="profile-md-container" class="profile">
+          <p class="muted">Loading…</p>
+        </div>
+      </section>
+
+      <section aria-labelledby="shortcuts-title">
+        <div class="section-head">
+          <h2 id="shortcuts-title" class="section-title">Shortcut phrases</h2>
+          <button type="button" id="btn-refresh-fastpaths" class="btn btn-secondary btn-small">Refresh</button>
+        </div>
+        <p class="help">These phrases skip the language model and act instantly. Learned ones come from things you say often.</p>
+        <div class="toolbar">
+          <div class="field field-grow">
+            <label for="fastpath-search">Search phrases</label>
+            <input type="search" id="fastpath-search" class="input" placeholder="pause, volume, timer" autocomplete="off">
+          </div>
+        </div>
+        <p class="list-meta" id="fastpath-count" aria-live="polite"></p>
+        <div id="fast-path-rules-list" class="rule-list">
+          <p class="muted">Loading shortcut phrases…</p>
+        </div>
+      </section>
+    </section>
+
+    <!-- =============================== SETTINGS ============================= -->
+    <section id="settings-page" class="page-view" aria-labelledby="settings-title">
+      <header class="page-header">
+        <h1 id="settings-title" class="page-title" tabindex="-1">Settings</h1>
+        <p class="page-intro">Changes save as soon as you make them.</p>
+      </header>
+
+      <section class="settings-section" aria-labelledby="set-shortcut-title">
+        <h2 id="set-shortcut-title" class="section-title">Talk shortcut</h2>
+        <button type="button" id="keybind-recorder" class="recorder" aria-pressed="false" aria-describedby="keybind-hint">
+          <span class="recorder-label">Hold to talk</span>
+          <span id="active-keybind-display" class="keycaps"></span>
+        </button>
+        <p class="help" id="keybind-hint" aria-live="polite">Click, then hold the new keys together. Esc cancels.</p>
+      </section>
+
+      <section class="settings-section" aria-labelledby="set-models-title">
+        <h2 id="set-models-title" class="section-title">Models</h2>
+        <div class="field">
+          <label for="setting-llm-provider">Thinking</label>
+          <select id="setting-llm-provider" class="select"><option>Loading…</option></select>
+          <p class="help">Local models run on this computer. Cloud models need an API key below.</p>
+        </div>
+        <div class="field">
+          <label for="setting-stt-provider">Hearing (speech to text)</label>
+          <select id="setting-stt-provider" class="select"><option>Loading…</option></select>
+        </div>
+        <div class="field">
+          <label for="setting-memory-llm-provider">Learning (memory profile and shortcut phrases)</label>
+          <select id="setting-memory-llm-provider" class="select"><option>Loading…</option></select>
+        </div>
+      </section>
+
+      <section class="settings-section" aria-labelledby="set-voice-title">
+        <h2 id="set-voice-title" class="section-title">Voice</h2>
+        <div class="form-grid">
+          <div class="field">
+            <label for="setting-tts-provider">Voice engine</label>
+            <select id="setting-tts-provider" class="select"><option>Loading…</option></select>
+          </div>
+          <div class="field">
+            <label for="setting-voice-select">Voice</label>
+            <select id="setting-voice-select" class="select"><option>Loading…</option></select>
+          </div>
+        </div>
+        <button type="button" id="btn-test-voice" class="btn btn-secondary">Play a sample</button>
+      </section>
+
+      <section class="settings-section" aria-labelledby="set-keys-title">
+        <h2 id="set-keys-title" class="section-title">API keys</h2>
+        <p class="help">Only needed for cloud models. Stored in <code>.env</code> on this computer.</p>
+        <div class="field">
+          <label for="setting-anthropic-key">Anthropic</label>
+          <input type="password" id="setting-anthropic-key" class="input input-code" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="setting-gemini-key">Google Gemini</label>
+          <input type="password" id="setting-gemini-key" class="input input-code" autocomplete="off" spellcheck="false">
+        </div>
+      </section>
+
+      <section class="settings-section" aria-labelledby="set-backup-title">
+        <h2 id="set-backup-title" class="section-title">Conversation backup</h2>
+        <label class="switch-row" for="setting-s3-enabled">
+          <input type="checkbox" id="setting-s3-enabled" class="switch">
+          <span>Back up conversations to Amazon S3</span>
+        </label>
+        <div class="form-grid">
+          <div class="field">
+            <label for="setting-s3-arn">Bucket name or ARN</label>
+            <input type="text" id="setting-s3-arn" class="input input-code" placeholder="my-jarvis-backup" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="setting-s3-region">Region</label>
+            <input type="text" id="setting-s3-region" class="input input-code" placeholder="us-east-1" spellcheck="false">
+          </div>
+        </div>
+        <p class="help">AWS access keys are read from <code>.env</code>.</p>
+      </section>
+    </section>
   </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
   <script src="js/app.js"></script>
 </body>

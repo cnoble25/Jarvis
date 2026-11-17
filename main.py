@@ -12,8 +12,10 @@ import os
 import sys
 import time
 import threading
+import urllib.request
 from pathlib import Path
 import json
+from typing import Any, Dict, Optional
 from PySide6.QtCore import Qt, QUrl, QSize, QTimer, QObject, Signal, QPoint, Slot
 from PySide6.QtWidgets import QApplication, QMainWindow
 from PySide6.QtGui import QShortcut, QKeySequence
@@ -55,6 +57,35 @@ from daemon.memory.profiler_agent import MemoryProfilerAgent
 BASE_DIR = Path(__file__).resolve().parent
 INDEX_HTML_PATH = BASE_DIR / "ui" / "index.html"
 HUD_HTML_PATH = BASE_DIR / "ui" / "hud.html"
+
+DEFAULT_HOTKEY = "Super + Space"
+VALID_RISK_LEVELS = ("SAFE", "MEDIUM", "HIGH")
+
+# Fixed replies the LLM providers return when they cannot answer, mapped to a fix the user can act on.
+PROVIDER_FAILURE_HINTS = [
+    ("error reaching local ollama server", "Ollama wasn't running. Start it with `ollama serve`, or switch model on Overview."),
+    ("account credits required", "Your Anthropic account is out of credits. Add credits at console.anthropic.com or pick another model."),
+    ("error reaching anthropic", "Couldn't reach Anthropic. Check your connection and API key in Settings."),
+    ("unable to connect to anthropic", "Couldn't reach Anthropic. Check your connection and API key in Settings."),
+    ("error reaching gemini", "Couldn't reach Gemini. Check your connection and API key in Settings."),
+    ("unable to connect to google gemini", "Couldn't reach Gemini. Check your connection and API key in Settings."),
+]
+
+
+def classify_turn(record: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Annotates a transcript record with status ("ok" | "failed") and a recovery hint.
+    A turn failed when the tool wrote to stderr or the LLM provider returned one of its fixed error replies.
+    """
+    spoken = (record.get("spoken_response") or "").lower()
+    stderr = (record.get("execution_stderr") or "").strip()
+    for needle, hint in PROVIDER_FAILURE_HINTS:
+        if needle in spoken:
+            return {**record, "status": "failed", "failure_hint": hint}
+    if stderr:
+        first_line = stderr.splitlines()[0][:200]
+        return {**record, "status": "failed", "failure_hint": f"The command reported an error: {first_line}"}
+    return {**record, "status": "ok", "failure_hint": ""}
 
 
 class TriggerBridge(QObject):
@@ -108,7 +139,7 @@ class DashboardWindow(QMainWindow):
 
     def _on_shortcut_activated(self):
         if self.bridge:
-            print("[Dashboard] Local QShortcut triggered: Ctrl+Space", flush=True)
+            print("[Dashboard] Local QShortcut triggered: Super+Space", flush=True)
             self.bridge.show_hud_signal.emit()
 
 
@@ -193,6 +224,13 @@ class JarvisApplication:
         # Qt Signal Bridge
         self.bridge = TriggerBridge()
 
+        # Live voice-loop state shown on the dashboard: idle | listening | thinking | speaking
+        self.voice_state = "idle"
+        self._reanalyzing = False
+        self._last_reanalysis: Optional[Dict[str, Any]] = None
+        self._voice_test_running = False
+        self._llm_check_cache: Dict[str, Any] = {"at": 0.0, "result": None}
+
         # 1. Memory & Providers Subsystem
         self.logger = TranscriptLogger()
         self.profiler = MemoryProfilerAgent(logger=self.logger)
@@ -207,7 +245,7 @@ class JarvisApplication:
         # 2. Tools & Orchestrator
         self.registry = ToolRegistry()
         self.engine = ExecutionEngine(self.registry)
-        self.tts = TTSEngine()
+        self.tts = self.provider_factory.tts_provider
         self.orchestrator = AgentOrchestrator(
             model_name=self.provider_factory.settings.get("llm_model", "qwen3.5:9b"),
             registry=self.registry,
@@ -228,7 +266,7 @@ class JarvisApplication:
 
         # 4. Global Hotkey Interceptor (Super + Space)
         self.hotkey_interceptor = HotkeyInterceptor(
-            shortcut_str="Super + Space",
+            shortcut_str=self.provider_factory.settings.get("hotkey") or DEFAULT_HOTKEY,
             on_press_callback=self.on_hotkey_press,
             on_release_callback=self.on_hotkey_release,
             release_buffer_ms=200
@@ -245,43 +283,84 @@ class JarvisApplication:
         Handles incoming JSON-RPC commands from the GUI dashboard.
         """
         if action == "get_status":
-            return {
-                "daemon_status": "active",
-                "active_keybind": self.hotkey_interceptor.shortcut_str,
-                "model_name": self.orchestrator.model_name,
-                "s3_bucket": self.logger.bucket_name or "Not Configured"
-            }
+            if params.get("recheck"):
+                self._llm_check_cache = {"at": 0.0, "result": None}
+            return self._build_status()
         elif action == "update_keybind":
-            new_shortcut = params.get("keybind", "Ctrl + Space")
+            new_shortcut = " + ".join(p.strip() for p in str(params.get("keybind", "")).split("+") if p.strip())
+            if not new_shortcut:
+                return {"success": False, "error": "No keys were recorded. Click the shortcut box and hold the keys you want."}
+            if len(new_shortcut.split(" + ")) > 4:
+                return {"success": False, "error": "Use four keys or fewer for the talk shortcut."}
             self.hotkey_interceptor.update_shortcut(new_shortcut)
+            self.provider_factory.settings["hotkey"] = new_shortcut
+            self.provider_factory.save_settings()
             return {"success": True, "new_shortcut": new_shortcut}
+        elif action == "get_tools":
+            tools = []
+            for t in sorted(self.registry.list_tools(), key=lambda m: m.id):
+                tools.append({
+                    "id": t.id,
+                    "name": t.name,
+                    "description": t.description,
+                    "category": t.category,
+                    "command": t.execution.template if t.execution else "",
+                    "examples": [ex.user_prompt for ex in t.examples],
+                    "risk_level": t.risk_level,
+                })
+            return {"success": True, "tools": tools}
+        elif action == "test_voice":
+            return self._start_voice_test(params.get("voice"))
         elif action == "get_settings":
+            tts_provider = self.provider_factory.tts_provider
+            available_voices = tts_provider.get_available_voices() if tts_provider else []
             return {
                 "success": True,
-                "settings": self.provider_factory.settings
+                "settings": self.provider_factory.settings,
+                "stt_providers": self.provider_factory.get_available_stt_providers(),
+                "tts_providers": self.provider_factory.get_available_tts_providers(),
+                "llm_providers": self.provider_factory.get_available_llm_providers(),
+                "available_voices": available_voices
             }
+        elif action == "get_voices_for_provider":
+            tts_id = params.get("tts_provider", self.provider_factory.settings.get("tts_provider", "kokoro"))
+            voices = self.provider_factory.get_voices_for_provider(tts_id)
+            return {"success": True, "tts_provider": tts_id, "voices": voices}
         elif action == "update_provider_config":
             self.provider_factory.update_settings(params)
             self.orchestrator.set_llm_provider(self.provider_factory.llm_provider)
+            self.orchestrator.tts = self.provider_factory.tts_provider
+            self.tts = self.provider_factory.tts_provider
             self.profiler.set_llm_provider(self.provider_factory.llm_provider)
-            return {"success": True, "settings": self.provider_factory.settings}
+            self._apply_s3_settings_live()
+            self._llm_check_cache = {"at": 0.0, "result": None}
+            return {
+                "success": True,
+                "settings": self.provider_factory.settings,
+                "available_voices": self.provider_factory.tts_provider.get_available_voices() if self.provider_factory.tts_provider else []
+            }
         elif action == "register_custom_tool":
+            tool_id = str(params.get("id", "")).strip()
+            if not tool_id:
+                return {"success": False, "error": "The command needs an ID."}
+            if params.get("risk_level") not in VALID_RISK_LEVELS:
+                return {"success": False, "error": "Choose a risk level: Safe, Medium or High."}
+            if self.registry.get_tool(tool_id) and not params.get("overwrite"):
+                return {"success": False, "error": f"A command with the ID '{tool_id}' already exists.", "exists": True}
+            params = {k: v for k, v in params.items() if k != "overwrite"}
             manifest = self.registry.register_tool(params)
             self.orchestrator.registry.reload_tools()
             print(f"[Jarvis Main] Registered custom tool manifest: {manifest.id}", flush=True)
             return {"success": True, "tool_id": manifest.id}
         elif action == "get_transcripts":
-            transcripts = self.logger.read_all_transcripts()
+            transcripts = [classify_turn(r) for r in self.logger.read_all_transcripts()]
             return {"success": True, "transcripts": transcripts}
         elif action == "get_memory_profile":
             from daemon.memory.profiler_agent import load_user_profile
             content = load_user_profile(self.profiler.profile_path)
-            return {"success": True, "content": content}
+            return {"success": True, "content": content, "reanalyzing": self._reanalyzing, "last_reanalysis": self._last_reanalysis}
         elif action == "reanalyze_memory":
-            res = self.profiler.update_profile(force=True)
-            from daemon.memory.profiler_agent import load_user_profile
-            res["content"] = load_user_profile(self.profiler.profile_path)
-            return res
+            return self._start_reanalysis()
         elif action == "get_fast_path_rules":
             rules = self.orchestrator.fast_path_manager.get_all_rules()
             return {"success": True, "rules": rules}
@@ -310,7 +389,125 @@ class JarvisApplication:
             name = params.get("name", "")
             deleted = get_macro_manager().delete_macro(name)
             return {"success": deleted, "name": name}
-        return {"status": "ok", "action": action}
+        return {"success": False, "error": f"Unknown action '{action}'."}
+
+    # ------------------------------------------------------------------
+    # Dashboard status helpers
+    # ------------------------------------------------------------------
+
+    def _check_llm(self) -> Dict[str, Any]:
+        """
+        Cheap reachability check for the active LLM, cached for 10s so the dashboard can poll it.
+        Ollama is probed over localhost (connection refused returns instantly); cloud providers
+        only report whether an API key is configured.
+        """
+        now = time.monotonic()
+        cached = self._llm_check_cache
+        if cached["result"] is not None and now - cached["at"] < 10:
+            return cached["result"]
+
+        provider = self.provider_factory.llm_provider
+        info = provider.get_provider_info() if provider else {}
+        provider_id = info.get("id", "")
+        result: Dict[str, Any] = {"ok": True, "message": ""}
+
+        if provider_id.startswith("ollama"):
+            url = getattr(provider, "ollama_url", "http://localhost:11434").rstrip("/")
+            try:
+                with urllib.request.urlopen(f"{url}/api/tags", timeout=0.4) as resp:
+                    result = {"ok": resp.status == 200, "message": ""}
+            except Exception:
+                result = {"ok": False, "message": "Ollama isn't running. Start it with `ollama serve`."}
+        elif provider_id == "anthropic_llm" and not os.environ.get("ANTHROPIC_API_KEY"):
+            result = {"ok": False, "message": "No Anthropic API key is set. Add one in Settings."}
+        elif provider_id == "gemini_llm" and not os.environ.get("GEMINI_API_KEY"):
+            result = {"ok": False, "message": "No Gemini API key is set. Add one in Settings."}
+
+        self._llm_check_cache = {"at": now, "result": result}
+        return result
+
+    def _build_status(self) -> Dict[str, Any]:
+        factory = self.provider_factory
+        stt_info = factory.stt_provider.get_provider_info() if factory.stt_provider else {}
+        llm_info = factory.llm_provider.get_provider_info() if factory.llm_provider else {}
+        tts_info = factory.tts_provider.get_provider_info() if factory.tts_provider else {}
+        server_thread = getattr(self.ipc_server, "_server_thread", None)
+        return {
+            "success": True,
+            # Kept for older IPC clients (bin/jarvis-macro etc.)
+            "daemon_status": "active",
+            "active_keybind": self.hotkey_interceptor.shortcut_str,
+            "model_name": self.orchestrator.model_name,
+            "s3_bucket": self.logger.bucket_name or "Not Configured",
+            # Dashboard fields
+            "voice_state": self.voice_state,
+            "hotkey": self.hotkey_interceptor.shortcut_str,
+            "ipc": {
+                "running": bool(server_thread and server_thread.is_alive()),
+                "socket_path": self.ipc_server.socket_path,
+            },
+            "s3": {
+                "enabled": bool(self.logger.s3_sync_enabled),
+                "bucket": self.logger.bucket_name or "",
+                "arn": self.logger.s3_arn or "",
+                "region": self.logger.aws_region or "",
+            },
+            "stt": {"name": stt_info.get("name", ""), "model": factory.settings.get("stt_model", "")},
+            "llm": {"name": llm_info.get("name", ""), "model": llm_info.get("model_name", ""), "check": self._check_llm()},
+            "tts": {"name": tts_info.get("name", ""), "voice": factory.settings.get("tts_voice", "")},
+            "reanalyzing": self._reanalyzing,
+        }
+
+    def _apply_s3_settings_live(self):
+        """
+        Pushes S3 settings that update_settings wrote to os.environ into the running transcript logger,
+        so the dashboard reflects them without a restart.
+        """
+        from daemon.memory.transcript_logger import parse_bucket_name
+        self.logger.s3_arn = os.getenv("JARVIS_S3_BUCKET_ARN", "")
+        self.logger.bucket_name = parse_bucket_name(self.logger.s3_arn)
+        self.logger.aws_region = os.getenv("AWS_REGION", "us-east-1")
+        enabled_env = os.getenv("JARVIS_S3_SYNC_ENABLED", "false").lower() in ("true", "1", "yes")
+        self.logger.s3_sync_enabled = enabled_env and bool(self.logger.bucket_name)
+
+    def _start_voice_test(self, voice: Optional[str]) -> Dict[str, Any]:
+        tts = self.provider_factory.tts_provider
+        if not tts:
+            return {"success": False, "error": "No voice engine is loaded."}
+        if self._voice_test_running:
+            return {"success": False, "error": "A voice test is already playing."}
+
+        def _speak():
+            self._voice_test_running = True
+            try:
+                tts.speak("Hi, this is how I'll sound when I answer you.", voice=voice or None, block=True)
+            except Exception as err:
+                print(f"[Jarvis Main] Voice test failed: {err}", flush=True)
+            finally:
+                self._voice_test_running = False
+
+        threading.Thread(target=_speak, daemon=True, name="JarvisVoiceTestThread").start()
+        return {"success": True}
+
+    def _start_reanalysis(self) -> Dict[str, Any]:
+        if self._reanalyzing:
+            return {"success": True, "started": False, "reanalyzing": True}
+
+        def _run():
+            self._reanalyzing = True
+            try:
+                res = self.profiler.update_profile(force=True)
+                ok = bool(res.get("success"))
+                self._last_reanalysis = {"success": ok, "message": "" if ok else res.get("reason", "The profile couldn't be updated."), "at": time.time()}
+                print(f"[Jarvis Main] Memory re-analysis finished: {res.get('reason', 'ok')}", flush=True)
+            except Exception as err:
+                self._last_reanalysis = {"success": False, "message": str(err), "at": time.time()}
+                print(f"[Jarvis Main] Memory re-analysis failed: {err}", flush=True)
+            finally:
+                self._reanalyzing = False
+
+        threading.Thread(target=_run, daemon=True, name="JarvisReanalyzeThread").start()
+        return {"success": True, "started": True, "reanalyzing": True}
 
     def on_hotkey_press(self):
         """
@@ -318,6 +515,7 @@ class JarvisApplication:
         Pops up bottom HUD pill and starts microphone recording.
         """
         print("\n[Jarvis Main] 🔴 Hotkey Pressed! Emitting show_hud_signal...", flush=True)
+        self.voice_state = "listening"
         self.bridge.show_hud_signal.emit()
         self.bridge.update_hud_signal.emit("RECORDING_STARTED", "")
 
@@ -334,6 +532,7 @@ class JarvisApplication:
         Stops recording, runs STT -> LLM -> Tools -> TTS, and hides HUD pill.
         """
         print("[Jarvis Main] ⏹️ Hotkey Released! Processing voice session...", flush=True)
+        self.voice_state = "thinking"
         active_model = self.orchestrator.get_active_model_name()
         thinking_msg = f"Inferring action with {active_model}..."
         self.bridge.update_hud_signal.emit("AGENT_THINKING", thinking_msg)
@@ -344,6 +543,7 @@ class JarvisApplication:
                 pcm_buffer = self.recorder.stop_recording()
                 if pcm_buffer is None or len(pcm_buffer) == 0:
                     print("[Jarvis Main] No audio captured.", flush=True)
+                    self.voice_state = "idle"
                     self.bridge.hide_hud_signal.emit()
                     return
 
@@ -353,6 +553,7 @@ class JarvisApplication:
                 print(f"[Jarvis Main] Transcribed ({stt_provider.get_provider_info()['name']}): \"{user_text}\"", flush=True)
 
                 if not user_text.strip():
+                    self.voice_state = "idle"
                     self.bridge.hide_hud_signal.emit()
                     return
 
@@ -362,6 +563,7 @@ class JarvisApplication:
                 result = self.orchestrator.process_voice_query(user_text, speak_output=True)
 
                 final_spoken = result.get("final_spoken_summary", "Task complete.")
+                self.voice_state = "speaking"
                 self.bridge.update_hud_signal.emit("TTS_SPEAKING", final_spoken)
 
                 # 3 & 4. Run Memory Profiler & Fast-Path Creator Agent in background thread so voice response returns instantly!
@@ -390,6 +592,7 @@ class JarvisApplication:
             finally:
                 # Hide HUD pill after processing finishes
                 time.sleep(1.5)
+                self.voice_state = "idle"
                 self.bridge.hide_hud_signal.emit()
                 self.ipc_server.broadcast_event("IDLE")
 
