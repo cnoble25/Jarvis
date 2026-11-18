@@ -609,6 +609,31 @@ function renderLatest() {
   );
 }
 
+/* ---------- Typed requests ---------- */
+
+function initAskForm() {
+  const form = $("#ask-form");
+  const input = $("#ask-input");
+  if (!form || !input) return;
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) { input.focus(); return; }
+    const button = form.querySelector("button");
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    const res = await ipc("submit_text", { text });
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    if (res && res.success) {
+      input.value = "";
+    } else {
+      notify(res?.error || "Couldn’t send that. Is Jarvis running?", { tone: "error" });
+    }
+    input.focus();
+  });
+}
+
 /* ---------- Background tasks ---------- */
 
 const TASK_LINGER_MS = 90 * 1000; // a finished task stays up long enough to read its outcome
@@ -635,6 +660,12 @@ async function loadTasks() {
   }
 }
 
+async function answerTask(id, approve, row) {
+  row.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+  const res = await ipc("answer_task", { id, approve });
+  if (!res || !res.success) notify(res?.error || "That step isn’t waiting anymore.", { tone: "error" });
+}
+
 async function cancelTask(id, button) {
   button.disabled = true;
   button.textContent = "Stopping…";
@@ -657,16 +688,19 @@ function renderTasks() {
   section.hidden = visible.length === 0;
   list.replaceChildren(...visible.map((t) => {
     const running = t.status === "running";
-    const steps = (t.steps || []).map((s) => el("li", { class: `task-step is-${s.state || "done"}` }, [
+    const waiting = running && t.approval?.state === "waiting";
+    // While waiting for an OK, the step in question is shown in the approval card, not twice.
+    const shownSteps = waiting ? (t.steps || []).slice(0, -1) : (t.steps || []);
+    const steps = shownSteps.map((s) => el("li", { class: `task-step is-${s.state || "done"}` }, [
       el("span", { class: "task-step-label", text: s.label }),
       s.detail ? el("code", { class: "task-step-detail", text: s.detail, title: s.detail }) : null,
     ]));
     if (running && t.current && !(t.steps || []).some((s) => s.state === "running")) {
       steps.push(el("li", { class: "task-step is-running" }, [el("span", { class: "task-step-label", text: t.current })]));
     }
-    return el("li", { class: `task is-${t.status}` }, [
+    return el("li", { class: `task is-${t.status}${waiting ? " is-waiting" : ""}` }, [
       el("span", { class: "task-status" }, [
-        el("span", { class: "task-state", text: TASK_STATUS[t.status] || t.status }),
+        el("span", { class: "task-state", text: waiting ? "Needs your OK" : TASK_STATUS[t.status] || t.status }),
         el("span", { class: "task-time", text: elapsed(t.started_at, running ? null : t.finished_at) }),
       ]),
       el("div", { class: "task-head" }, [
@@ -676,6 +710,17 @@ function renderTasks() {
           onclick: (e) => cancelTask(t.id, e.currentTarget), text: "Cancel" }) : null,
       ]),
       steps.length ? el("ol", { class: "task-steps" }, steps) : null,
+      waiting ? el("div", { class: "task-approval" }, [
+        el("p", { class: "task-approval-label", text: t.approval.label }),
+        t.approval.detail ? el("pre", { class: "task-approval-detail", text: t.approval.detail }) : null,
+        el("div", { class: "task-approval-actions" }, [
+          el("button", { type: "button", class: "btn btn-primary btn-small",
+            onclick: (e) => answerTask(t.id, true, e.currentTarget.closest(".task-approval")), text: "Go ahead" }),
+          el("button", { type: "button", class: "btn btn-secondary btn-small",
+            onclick: (e) => answerTask(t.id, false, e.currentTarget.closest(".task-approval")), text: "Don’t do it" }),
+          el("span", { class: "task-approval-hint", text: "or say “go ahead” / “no”" }),
+        ]),
+      ]) : null,
       !running && t.result ? el("p", { class: "task-result", text: t.result }) : null,
     ]);
   }));
@@ -1644,6 +1689,7 @@ function boot() {
   safely("keybind recorder", initKeybindRecorder);
   safely("transcripts", initTranscripts);
   safely("background tasks", loadTasks);
+  safely("typed requests", initAskForm);
   safely("memory profile", initMemoryProfile);
   safely("tool builder", initToolBuilder);
   safely("macro form", initMacroForm);

@@ -5,6 +5,8 @@ and executes custom JSON tool templates safely.
 """
 
 import os
+import shutil
+from pathlib import Path
 import signal
 import subprocess
 import re
@@ -249,6 +251,144 @@ class ExecutionEngine:
 
         return {"success": False, "exit_code": 1, "stdout": "", "stderr": f"Failed to execute web search for '{query}'"}
 
+    # ---- Volume and screenshots ------------------------------------------------------------------
+
+    @staticmethod
+    def _current_volume() -> Optional[str]:
+        out = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], capture_output=True, text=True).stdout
+        m = re.search(r"Volume:\s*([\d.]+)(\s*\[MUTED\])?", out or "")
+        if not m:
+            return None
+        return "muted" if m.group(2) else f"{round(float(m.group(1)) * 100)}%"
+
+    def _volume(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """up / down / mute / unmute / '40%' / '5%+' / 'toggle', on the default output via wpctl."""
+        action = str(args.get("action", "")).lower().strip()
+        raw = str(args.get("_raw_user_query", "")).lower()
+        sink = "@DEFAULT_AUDIO_SINK@"
+        step = 5
+        m = re.search(r"(\d{1,3})\s*(%|percent)", action) or re.search(r"(\d{1,3})\s*(%|percent)", raw)
+        if action in ("mute", "toggle") or (not action and "mute" in raw and "unmute" not in raw):
+            cmd, word = ["wpctl", "set-mute", sink, "1" if action == "mute" else "toggle"], "Muted" if action == "mute" else "Toggled mute"
+        elif action in ("unmute",) or "unmute" in raw:
+            cmd, word = ["wpctl", "set-mute", sink, "0"], "Unmuted"
+        elif action.endswith(("%+", "%-")) and action[:-2].isdigit():
+            cmd, word = ["wpctl", "set-volume", "-l", "1.0", sink, action], "Volume up" if action.endswith("+") else "Volume down"
+        elif action in ("up", "louder", "increase", "raise") or (not m and re.search(r"\b(up|louder|raise|increase)\b", raw)):
+            cmd, word = ["wpctl", "set-volume", "-l", "1.0", sink, f"{step}%+"], "Volume up"
+        elif action in ("down", "quieter", "decrease", "lower") or (not m and re.search(r"\b(down|quieter|lower|decrease)\b", raw)):
+            cmd, word = ["wpctl", "set-volume", sink, f"{step}%-"], "Volume down"
+        elif m:
+            level = max(0, min(100, int(m.group(1))))
+            cmd, word = ["wpctl", "set-volume", sink, f"{level}%"], "Volume set"
+        else:
+            return {"success": False, "exit_code": 1, "stdout": "", "stderr": f"Unknown volume action '{action}'.",
+                    "spoken_confirmation": "Should I turn it up, down, or mute it?"}
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            return {"success": False, "exit_code": proc.returncode, "stdout": "", "stderr": proc.stderr.strip() or "wpctl failed",
+                    "spoken_confirmation": "I couldn't change the volume."}
+        if cmd[1] == "set-mute" and cmd[-1] == "0":
+            subprocess.run(["wpctl", "set-mute", sink, "0"], capture_output=True)
+        level = self._current_volume()
+        spoken = f"{word}, now {level}." if level and level != "muted" and word.startswith("Volume") else f"{word}."
+        return {"success": True, "exit_code": 0, "stdout": " ".join(cmd), "stderr": "", "spoken_confirmation": spoken}
+
+    def _screenshot(self) -> Dict[str, Any]:
+        """Use the desktop's own screenshot tool, and only report success if the file was saved."""
+        from datetime import datetime
+        folder = Path.home() / "Pictures" / "Screenshots"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"Screenshot_{datetime.now():%Y-%m-%d_%H-%M-%S}.png"
+        desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
+        wayland = os.environ.get("XDG_SESSION_TYPE", "") == "wayland" or "WAYLAND_DISPLAY" in os.environ
+        candidates = []
+        if shutil.which("spectacle") and ("kde" in desktop or not wayland):
+            candidates.append(["spectacle", "-b", "-n", "-f", "-o", str(path)])
+        if shutil.which("gnome-screenshot") and "gnome" in desktop:
+            candidates.append(["gnome-screenshot", "-f", str(path)])
+        if shutil.which("grim") and wayland and not any(d in desktop for d in ("kde", "gnome")):
+            candidates.append(["grim", str(path)])
+        if shutil.which("import") and not wayland:
+            candidates.append(["import", "-window", "root", str(path)])
+        if not candidates:
+            return {"success": False, "exit_code": 127, "stdout": "", "stderr": "No screenshot tool for this desktop.",
+                    "spoken_confirmation": "I couldn't find a screenshot tool for this desktop."}
+        errors = []
+        for cmd in candidates:
+            try:
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+            except subprocess.TimeoutExpired:
+                errors.append(f"{cmd[0]} timed out")
+                continue
+            if path.exists() and path.stat().st_size > 0:
+                return {"success": True, "exit_code": 0, "stdout": str(path), "stderr": "",
+                        "spoken_confirmation": "Took a screenshot. It's in Pictures, Screenshots."}
+            errors.append(f"{cmd[0]}: {proc.stderr.strip()[:120] or 'no file written'}")
+        return {"success": False, "exit_code": 1, "stdout": "", "stderr": "; ".join(errors),
+                "spoken_confirmation": "The screenshot didn't save."}
+
+    # ---- Closing apps: only the app's own processes ------------------------------------------
+
+    @staticmethod
+    def _own_pids() -> set:
+        """Jarvis itself and its parent shell: never killed by a close request."""
+        return {os.getpid(), os.getppid()}
+
+    @staticmethod
+    def _pids_by_name(name: str) -> list:
+        if not name:
+            return []
+        out = subprocess.run(["pgrep", "-x", name[:15]], capture_output=True, text=True).stdout
+        return [int(p) for p in out.split() if p.isdigit()]
+
+    @staticmethod
+    def _pids_for_steam_game(appid: str) -> list:
+        pids = []
+        for env_path in Path("/proc").glob("[0-9]*/environ"):
+            try:
+                env = env_path.read_bytes().split(b"\0")
+            except OSError:
+                continue
+            if f"SteamGameId={appid}".encode() in env or f"SteamAppId={appid}".encode() in env:
+                pids.append(int(env_path.parent.name))
+        return pids
+
+    def _close_app(self, display: str, plan: Dict[str, str]) -> Dict[str, Any]:
+        def result(ok: bool, spoken: str, detail: str = "") -> Dict[str, Any]:
+            return {"success": ok, "exit_code": 0 if ok else 1, "stdout": detail if ok else "",
+                    "stderr": "" if ok else detail, "spoken_confirmation": spoken}
+
+        not_running = result(True, f"{display} isn't running.", "Not running.")
+        kind = plan.get("kind")
+        if kind == "flatpak":
+            running = subprocess.run(["flatpak", "ps", "--columns=application"], capture_output=True, text=True).stdout.split()
+            if plan["id"] in running:
+                proc = subprocess.run(["flatpak", "kill", plan["id"]], capture_output=True, text=True)
+                return result(proc.returncode == 0, f"Closed {display}." if proc.returncode == 0 else f"Couldn't close {display}.",
+                              proc.stderr.strip() or f"flatpak kill {plan['id']}")
+            kind, plan = "process", {"name": plan.get("name", "")}  # a native app with a Flatpak-style id
+        if kind == "steam":
+            if not self._pids_by_name("steam"):
+                return not_running
+            subprocess.Popen(["steam", "-shutdown"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             stdin=subprocess.DEVNULL, start_new_session=True)
+            return result(True, "Closing Steam.", "steam -shutdown")
+        if kind == "steam_game":
+            pids = [p for p in self._pids_for_steam_game(plan["appid"]) if p not in self._own_pids()]
+        else:
+            pids = [p for p in self._pids_by_name(plan.get("name", "")) if p not in self._own_pids()]
+        if not pids:
+            return not_running
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                return result(False, f"I'm not allowed to close {display}.", f"Permission denied for PID {pid}.")
+        return result(True, f"Closed {display}.", f"Sent SIGTERM to {len(pids)} process(es).")
+
     def execute_custom_tool(self, tool_id: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """
         Executes a custom tool from the JSON ToolRegistry by interpolating arguments.
@@ -444,6 +584,28 @@ class ExecutionEngine:
 
             return res
 
+        if tool_id == "volume_control":
+            return self._volume(args)
+
+        if tool_id == "open_terminal":
+            terminal = next((t for t in ("konsole", "ptyxis", "gnome-terminal", "kitty", "alacritty", "wezterm",
+                                         "foot", "xfce4-terminal", "xterm") if shutil.which(t)), None)
+            if not terminal:
+                return {"success": False, "exit_code": 1, "stdout": "", "stderr": "No terminal app found.",
+                        "spoken_confirmation": "I couldn't find a terminal app to open."}
+            subprocess.Popen([terminal], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             stdin=subprocess.DEVNULL, start_new_session=True)
+            return {"success": True, "exit_code": 0, "stdout": f"Started {terminal}", "stderr": "",
+                    "spoken_confirmation": "Opened a terminal."}
+
+        if tool_id == "take_screenshot":
+            return self._screenshot()
+
+        if tool_id == "calendar_create_event" and not shutil.which("khal"):
+            return {"success": False, "exit_code": 127, "stdout": "",
+                    "stderr": "khal is not installed, so calendar events can't be created.",
+                    "spoken_confirmation": "I can't add calendar events yet: the khal calendar tool isn't installed."}
+
         if tool_id == "app_launcher":
             app_query = args.get("app_name", "")
             raw_q = args.get("_raw_user_query", "").lower()
@@ -500,11 +662,16 @@ class ExecutionEngine:
                 if match:
                     app_query = match.group(1).strip().rstrip('.!')
 
-            close_cmd, app_display_name = scanner.resolve_app_close_command(app_query or "steam")
-            print(f"[ExecutionEngine.close_app] Closing app query '{app_query}' -> '{app_display_name}' ({close_cmd})", flush=True)
-            res = self.execute_bash(close_cmd)
-            res["spoken_confirmation"] = f"Closed {app_display_name}."
-            return res
+            if not app_query:
+                return {"success": False, "exit_code": 1, "stdout": "", "stderr": "No app named.",
+                        "spoken_confirmation": "Which app should I close?"}
+            app, plan = scanner.close_plan(app_query)
+            if not app:
+                name = scanner.clean_app_query(app_query) or app_query
+                return {"success": False, "exit_code": 1, "stdout": "", "stderr": f"No installed app matches '{name}'.",
+                        "spoken_confirmation": f"I couldn't find an app called {name}."}
+            print(f"[ExecutionEngine.close_app] Closing '{app_query}' -> '{app.name}' via {plan}", flush=True)
+            return self._close_app(app.name, plan)
 
 
         if tool_id == "system_power_control":
@@ -611,13 +778,15 @@ class ExecutionEngine:
                     executed.append(target)
 
             if not executed:
-                subprocess.run(["xdotool", "key", "XF86AudioPlay"], capture_output=True)
-                if method_name == "Play":
-                    spoken = "Resumed media playback."
-                elif method_name == "Pause":
-                    spoken = "Paused media playback."
-                else:
-                    spoken = "Toggled media playback."
+                # No media player answered (none running, or it rejected the call): say so rather
+                # than claiming it worked. The old xdotool media-key fallback can't reach Wayland apps.
+                reason = "No media player is running." if not mpris_players else f"The player didn't respond to {method_name}."
+                return {
+                    "success": False,
+                    "stdout": "",
+                    "stderr": reason,
+                    "spoken_confirmation": "Nothing is playing right now." if not mpris_players else "The media player didn't respond.",
+                }
             else:
                 display_p = player.title() if player else "media"
                 action_word = "Paused" if method_name == "Pause" else ("Resumed" if method_name == "Play" else "Toggled")
@@ -691,6 +860,10 @@ class ExecutionEngine:
             return {"success": False, "stdout": "", "stderr": f"Custom tool '{tool_id}' not found in registry."}
 
         template = tool.execution.template
+        # Fill optional arguments the model left out with the tool's declared defaults ("label": "Timer").
+        for key, spec in (tool.parameters.get("properties") or {}).items():
+            if key not in args and isinstance(spec, dict) and "default" in spec:
+                args = {**args, key: spec["default"]}
         
         # Interpolate template string: e.g., "gtk-launch '{app_name}'" -> "gtk-launch 'code'".
         # Values are escaped for the quoting context they land in, so spoken text can never
@@ -710,7 +883,9 @@ class ExecutionEngine:
         res = self.execute_bash(interpolated_cmd)
 
         # Render custom spoken confirmation if template provided
-        if tool.spoken_confirmation_template and res["success"]:
+        if tool_id == "set_timer" and res["success"]:
+            res["spoken_confirmation"] = timer_sentence(args.get("duration_sec"), args.get("label"))
+        elif tool.spoken_confirmation_template and res["success"]:
             spoken_text = tool.spoken_confirmation_template
             for key, val in args.items():
                 spoken_text = spoken_text.replace(f"{{{key}}}", str(val))
@@ -719,6 +894,23 @@ class ExecutionEngine:
             res["spoken_confirmation"] = f"Executed {tool.name}."
 
         return res
+
+def timer_sentence(duration_sec: Any, label: Any = None) -> str:
+    """'Set a 10 minute timer.' / 'Set a pizza timer for 1 hour 30 minutes.'"""
+    try:
+        total = int(float(duration_sec))
+    except (TypeError, ValueError):
+        total = 0
+    h, rem = divmod(total, 3600)
+    m, sec = divmod(rem, 60)
+    parts = [f"{n} {unit}{'s' if n != 1 else ''}" for n, unit in ((h, "hour"), (m, "minute"), (sec, "second")) if n]
+    length = " ".join(parts) or "0 seconds"
+    name = str(label or "").strip()
+    if not name or name.lower() == "timer":
+        single = len(parts) == 1
+        return f"Set a {length[:-1] if single and length.endswith('s') else length} timer." if single else f"Set a timer for {length}."
+    return f"Set a {name} timer for {length}."
+
 
 def interpolate_shell_template(template: str, args: Dict[str, Any]) -> str:
     """

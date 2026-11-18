@@ -1,0 +1,93 @@
+/* Shared by the always-on-top overlays (hud.html, panel.html): River Delta tokens, fonts, surface. */
+
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("../fonts/atkinson-hyperlegible-400.woff2") format("woff2");
+  font-weight: 400;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Atkinson Hyperlegible";
+  src: url("../fonts/atkinson-hyperlegible-700.woff2") format("woff2");
+  font-weight: 700;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../fonts/jetbrains-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-display: block;
+}
+
+:root {
+  --ramp-1: #0a1c28;
+  --ramp-2: #0e2433;
+  --ramp-3: #122c3c;
+  --ramp-4: #16384a;
+  --ramp-5: #1f4558;
+  --ramp-6: #2d5a70;
+  --ramp-8: #93b4bd;
+  --ramp-9: #b9d0d6;
+  --ramp-10: #e8f2f4;
+  --text: var(--ramp-10);
+  --text-2: var(--ramp-9);
+  --text-3: var(--ramp-8);
+  --silt: #7fd1d9;
+  --silt-deep: #4fa9b8;
+  --sage: #9fbfb1;
+  --sage-deep: #6f9585;
+  --coral: #e0786a;
+  --coral-text: #f4a99d;
+  --amber-text: #f1cf8a;
+  --amber-ground: #2c2a26;
+  --amber-edge: #6e5c34;
+  --font: "Atkinson Hyperlegible", "Noto Sans", "DejaVu Sans", system-ui, sans-serif;
+  --font-code: "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
+  --t-meta: 13px;
+  --t-body: 15px;
+  --radius: 8px;
+  --radius-small: 5px;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* The overlay surface is fully opaque: XWayland composites partial alpha far lighter than
+     asked, which let busy windows show through the text. Never pure black. */
+  --surface: var(--ramp-1);
+  --surface-edge: var(--ramp-5);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+  font-family: var(--font);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* No drop shadow: the window is only a few px bigger than the surface, so a soft shadow gets cut
+   into a visible rectangle. A dark outer ring separates it from light backgrounds instead. */
+.overlay-surface {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--surface-edge), 0 0 0 1px rgba(3, 12, 18, 0.7);
+}
+
+@keyframes overlay-pulse {
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

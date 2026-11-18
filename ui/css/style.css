@@ -891,6 +891,50 @@ body[data-voice-state="speaking"] .status-label {
 
 .task.is-failed .task-result { color: var(--coral-text); }
 
+.task.is-waiting .task-state { color: var(--amber-text); }
+.task-step.is-skipped { color: var(--text-3); text-decoration: line-through; }
+
+/* A step waiting for the user's OK: the command in full, then the two answers. */
+.task-approval {
+  grid-column: 2;
+  display: grid;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--radius);
+  background: var(--amber-ground);
+  box-shadow: inset 0 0 0 1px var(--amber-edge);
+}
+
+.task-approval-label {
+  margin: 0;
+  color: var(--amber-text);
+  font-weight: 700;
+}
+
+.task-approval-detail {
+  margin: 0;
+  max-height: 9em;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-code);
+  font-size: var(--t-meta);
+  color: var(--text);
+}
+
+.task-approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+}
+
+.task-approval-hint {
+  font-size: var(--t-meta);
+  color: var(--text-3);
+}
+
 @keyframes task-pulse {
   50% { opacity: 0.35; }
 }
@@ -1054,8 +1098,15 @@ body[data-voice-state="speaking"] .status-label {
   background: var(--dot, var(--outcome-other));
 }
 
+/* Inline, not flex: when the label wraps, the dash stays beside its first word. */
 .row-tool.outcome {
-  justify-content: flex-end;
+  display: block;
+}
+
+.row-tool.outcome::before {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: middle;
 }
 
 /* ---------- Tags ---------- */
@@ -1927,4 +1978,20 @@ textarea.input {
 .trigger-list li {
   overflow-wrap: anywhere;
   min-width: 0;
+}
+
+/* Typed requests: one line under the status, the same pipeline as speaking. */
+.ask-form {
+  display: flex;
+  gap: var(--s-2);
+  align-items: stretch;
+}
+
+.ask-form .input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ask-form .btn {
+  flex: 0 0 auto;
 }

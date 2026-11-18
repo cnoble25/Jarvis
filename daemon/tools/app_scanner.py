@@ -259,39 +259,37 @@ class AppScanner:
             return None
         return self._build_launch_cmd(app.desktop_id, app.exec_cmd), app.name, target_q
 
-    def resolve_app_close_command(self, query: str) -> Tuple[str, str]:
+    def close_plan(self, query: str) -> Tuple[Optional[AppEntry], Dict[str, str]]:
         """
-        Resolves a user target app query to a process termination command and display name.
-        
-        :return: (close_command, app_display_name)
+        How to close the app the query names, targeting only that app's own processes:
+          {"kind": "flatpak", "id": "com.spotify.Client"}   flatpak kill, by app id
+          {"kind": "steam"}                                  Steam's own shutdown
+          {"kind": "steam_game", "appid": "3017860"}         processes Steam tagged with the game
+          {"kind": "process", "name": "konsole"}             exact process name, never a substring
+        Returns (None, {}) when no installed app matches.
         """
-        _, display_name = self.resolve_app_launcher_command(query)
-        display_name = display_name or query
-        clean_name = self.clean_app_query(query) or query.lower().strip()
-        clean_name_no_space = clean_name.replace(" ", "")
-
-        # Process name mapping table for common desktop applications
-        proc_map = {
-            "steam": "steam",
-            "spotify": "spotify",
-            "discord": "discord",
-            "firefox": "firefox",
-            "chrome": "chrome",
-            "chromium": "chromium",
-            "brave": "brave",
-            "code": "code",
-            "vscode": "code",
-            "visualstudiocode": "code",
-            "slack": "slack",
-            "terminal": "ptyxis",
-            "calculator": "gnome-calculator",
-            "vlc": "vlc"
-        }
-
-        proc_target = proc_map.get(clean_name_no_space, clean_name_no_space)
-        close_cmd = f"pkill -i -f '{proc_target}' || killall -i '{proc_target}' || flatpak kill '{proc_target}' 2>/dev/null"
-        return close_cmd, display_name
-
+        app = self.find_app(query)
+        if not app:
+            return None, {}
+        exec_cmd = app.exec_cmd or ""
+        game = re.search(r"steam://rungameid/(\d+)", exec_cmd)
+        if game:
+            return app, {"kind": "steam_game", "appid": game.group(1)}
+        flatpak_id = ""
+        m = re.search(r"\bflatpak\s+run\s+(.*)", exec_cmd)
+        if m:
+            flatpak_id = next((t for t in m.group(1).split() if not t.startswith("-") and "." in t), "")
+        elif "/flatpak/exports/" in app.desktop_path or re.fullmatch(r"[A-Za-z][\w-]*(\.[\w-]+){2,}", app.desktop_id):
+            flatpak_id = app.desktop_id
+        binary = Path(exec_cmd.split()[0]).name if exec_cmd else ""
+        if app.desktop_id.lower() == "steam" or binary in ("steam", "bazzite-steam"):
+            return app, {"kind": "steam"}
+        if flatpak_id:
+            # Native fallback for wrappers that only look like Flatpak ids (checked against running apps).
+            # A real Flatpak launch has no native process to fall back to; a native app whose desktop id
+            # merely looks like one (org.kde.konsole) falls back to its exact binary name.
+            return app, {"kind": "flatpak", "id": flatpak_id, "name": "" if binary == "flatpak" else binary}
+        return app, {"kind": "process", "name": binary}
 
 
 # Global singleton instance for fast reuse
