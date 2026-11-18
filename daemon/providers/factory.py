@@ -15,7 +15,7 @@ SETTINGS_FILE = Path(os.path.expanduser("~/.config/jarvis/settings.json"))
 
 DEFAULT_SETTINGS = {
     "stt_provider": "faster_whisper",
-    "stt_model": "base.en",
+    "stt_model": "large-v3-turbo",
     "llm_provider": "ollama",
     "llm_model": "qwen3.5:9b",
     "memory_llm_provider": "inherit",
@@ -250,7 +250,7 @@ class ProviderFactory:
         
         # 1. STT Provider (only re-instantiate if STT provider or model changed)
         stt_id = self.settings.get("stt_provider", "faster_whisper")
-        stt_model = self.settings.get("stt_model", "base.en")
+        stt_model = self.settings.get("stt_model", "large-v3-turbo")
         curr_stt_id = getattr(self, "_stt_id", None)
         curr_stt_model = getattr(self, "_stt_model", None)
 

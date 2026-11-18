@@ -10,10 +10,16 @@ onnxruntime>=1.15.0
 soundfile>=0.12.1
 
 # Speech-to-Text (Local Faster-Whisper)
-faster-whisper>=1.0.0
+faster-whisper>=1.2.0
 
-# Text-to-Speech (Local Kokoro-ONNX)
+# GPU speech-to-text (NVIDIA): CUDA math libraries loaded from the venv by daemon/stt/cuda_libs.py.
+# Without an NVIDIA GPU these are unused and Whisper runs on the CPU.
+nvidia-cublas-cu12; sys_platform == "linux"
+nvidia-cudnn-cu12>=9,<10; sys_platform == "linux"
+
+# Text-to-Speech (Local Kokoro-ONNX, optional ElevenLabs cloud)
 kokoro-onnx>=0.3.0
+elevenlabs>=2.0.0
 
 # System Process & Utility Inspection
 psutil>=5.9.0
@@ -24,3 +30,6 @@ python-dotenv>=1.0.0
 
 # S3 Backup & Cloud Sync
 boto3>=1.28.0
+
+# Web search tool
+ddgs>=9.0.0

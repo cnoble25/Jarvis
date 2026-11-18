@@ -17,10 +17,15 @@ class BaseSTTProvider(ABC):
     Abstract Base Class for STT Providers with built-in buffer normalization,
     audio validation, and hallucination post-processing.
     """
-    HALLUCINATION_ARTIFACTS = [
-        "thanks for watching", "thank you.", "[blank_audio]",
-        "subtitles by", "amara.org", "bye.", "you"
-    ]
+    # Phrases Whisper invents on silence. Multi-word ones are removed wherever they appear;
+    # short ones ("you", "thank you", "bye") only when they are the whole utterance, so real
+    # speech like "what did you say" is left alone.
+    HALLUCINATION_PHRASES = ["thanks for watching", "subtitles by", "amara.org", "[blank_audio]"]
+    HALLUCINATION_UTTERANCES = {"you", "thank you", "thanks", "bye", "okay"}
+
+    # Alternatives the provider considered for the last transcription, most likely first:
+    # [{"text": str, "probability": float, ...}]. Providers without n-best leave it empty.
+    last_alternatives: List[Dict[str, Any]] = []
 
     def transcribe_buffer(self, pcm_data: Union[bytes, np.ndarray], sample_rate: int = 16000) -> str:
         """
@@ -28,6 +33,7 @@ class BaseSTTProvider(ABC):
         Standardizes audio data, validates audio energy/duration, invokes child subclass _transcribe_audio hook,
         and cleans hallucinations.
         """
+        self.last_alternatives = []
         if pcm_data is None or len(pcm_data) == 0:
             return ""
 
@@ -69,10 +75,12 @@ class BaseSTTProvider(ABC):
             return ""
         import re
         cleaned = text.strip()
-        for artifact in self.HALLUCINATION_ARTIFACTS:
-            if artifact in cleaned.lower():
-                pattern = re.escape(artifact) + r"[!\?.,]*"
-                cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
+        for phrase in self.HALLUCINATION_PHRASES:
+            pattern = re.escape(phrase) + r"[!\?.,]*"
+            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
+        bare = re.sub(r"[^a-z ]+", "", cleaned.lower()).strip()
+        if bare in self.HALLUCINATION_UTTERANCES:
+            return ""
         return cleaned
 
     @abstractmethod
