@@ -6,7 +6,9 @@ PySide6>=6.5.0
 # Audio Capture & VAD
 sounddevice>=0.4.6
 numpy>=1.24.0
-onnxruntime>=1.15.0
+# Speech synthesis (Kokoro) runs on the GPU with onnxruntime-gpu; it also includes the CPU provider.
+onnxruntime-gpu[cuda,cudnn]>=1.32; sys_platform == "linux"
+onnxruntime>=1.15.0; sys_platform != "linux"
 soundfile>=0.12.1
 
 # Speech-to-Text (Local Faster-Whisper)
@@ -33,3 +35,5 @@ boto3>=1.28.0
 
 # Web search tool
 ddgs>=9.0.0
+# Claude API (official SDK: pooled connections, typed errors)
+anthropic>=2.10

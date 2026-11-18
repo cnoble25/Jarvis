@@ -89,6 +89,8 @@ class AgentOrchestrator:
         self.task_board: Optional[TaskBoard] = None
         self._history_lock = threading.Lock()
         self.speech_lock = threading.RLock()
+        # Called with the reply text right before it is spoken (the app shows it in the pill).
+        self.speak_listener: Optional[Callable[[str], None]] = None
 
     def set_llm_provider(self, new_provider: BaseLLMProvider):
         """
@@ -196,7 +198,7 @@ class AgentOrchestrator:
             "   - CRITICAL: To launch desktop apps, ALWAYS set \"tool\": \"app_launcher\" and pass app name in args.\n"
             "   - CRITICAL: To close, exit, or terminate running desktop apps, ALWAYS set \"tool\": \"close_app\" and pass app_name in args (e.g. {\"app_name\": \"steam\"}).\n"
             "   - CRITICAL FALLBACK: Do NOT hallucinate tool calls or attempt to use unrelated tools for unsupported tasks! If no tool matches, set \"tool\": \"none\".\n"
-            "   - The \"thought\" field MUST be a clear 1-sentence explanation detailing user intent and why the selected tool (or 'none' fallback) was chosen.\n"
+            "   - The \"thought\" field MUST be at most 6 words naming the intent and the tool choice (e.g. \"resume paused media\", \"search install steps\").\n"
             "   - The \"spoken_summary\" MUST be a natural, friendly, voice-ready sentence for Text-to-Speech audio output confirming the action taken or explaining missing capability.\n"
             "   - For 'execute_terminal_command' the \"spoken_summary\" is spoken BEFORE the command runs, so say what you are doing in the present tense (\"Installing it now.\"), never that it is already done.\n"
             "3. **Audio / Voice Response Formatting Rules**:\n"
@@ -212,25 +214,25 @@ class AgentOrchestrator:
             "</available_user_macros>\n\n"
             "<few_shot_examples>\n"
             "User: \"Hello Jarvis\"\n"
-            "Response: {\"thought\": \"User greeted the assistant; responding with a friendly voice confirmation.\", \"tool\": \"none\", \"args\": {}, \"status\": \"complete\", \"spoken_summary\": \"Hello! How can I assist you with your desktop today?\"}\n\n"
+            "Response: {\"thought\": \"greeting, just reply\", \"tool\": \"none\", \"args\": {}, \"status\": \"complete\", \"spoken_summary\": \"Hello! How can I assist you with your desktop today?\"}\n\n"
             "User: \"Start gaming mode\"\n"
-            "Response: {\"thought\": \"User requested running gaming mode macro; using macro_control with action run.\", \"tool\": \"macro_control\", \"args\": {\"action\": \"run\", \"macro_name\": \"gaming_mode\"}, \"status\": \"complete\", \"spoken_summary\": \"Activated Gaming Mode.\"}\n\n"
+            "Response: {\"thought\": \"run gaming_mode macro\", \"tool\": \"macro_control\", \"args\": {\"action\": \"run\", \"macro_name\": \"gaming_mode\"}, \"status\": \"complete\", \"spoken_summary\": \"Activated Gaming Mode.\"}\n\n"
             "User: \"Create a gaming mode macro with Steam, Discord, and locked in mode\"\n"
-            "Response: {\"thought\": \"User requested creating a new gaming mode macro with multi-step commands; using macro_control tool.\", \"tool\": \"macro_control\", \"args\": {\"action\": \"create\", \"macro_name\": \"gaming_mode\", \"steps\": [\"steam\", \"discord\", \"locked-in start -d 2h\"]}, \"status\": \"complete\", \"spoken_summary\": \"Created Gaming Mode macro with Steam, Discord, and locked in mode.\"}\n\n"
+            "Response: {\"thought\": \"create gaming macro\", \"tool\": \"macro_control\", \"args\": {\"action\": \"create\", \"macro_name\": \"gaming_mode\", \"steps\": [\"steam\", \"discord\", \"locked-in start -d 2h\"]}, \"status\": \"complete\", \"spoken_summary\": \"Created Gaming Mode macro with Steam, Discord, and locked in mode.\"}\n\n"
             "User: \"Add Slack to my usual apps mode\"\n"
-            "Response: {\"thought\": \"User requested adding Slack step to usual apps macro; using macro_control tool.\", \"tool\": \"macro_control\", \"args\": {\"action\": \"add_step\", \"macro_name\": \"usual_apps\", \"step\": \"slack\"}, \"status\": \"complete\", \"spoken_summary\": \"Added Slack to your usual apps mode.\"}\n\n"
+            "Response: {\"thought\": \"add step to macro\", \"tool\": \"macro_control\", \"args\": {\"action\": \"add_step\", \"macro_name\": \"usual_apps\", \"step\": \"slack\"}, \"status\": \"complete\", \"spoken_summary\": \"Added Slack to your usual apps mode.\"}\n\n"
             "User: \"Can you look up how to install steam using flatpak?\"\n"
-            "Response: {\"thought\": \"User requested information on how to install Steam via Flatpak; searching web for exact command.\", \"tool\": \"web_search\", \"args\": {\"query\": \"how to install steam flatpak command flathub\"}, \"status\": \"continue\", \"spoken_summary\": \"Looking up Steam Flatpak installation instructions.\"}\n\n"
+            "Response: {\"thought\": \"look up install command\", \"tool\": \"web_search\", \"args\": {\"query\": \"how to install steam flatpak command flathub\"}, \"status\": \"continue\", \"spoken_summary\": \"Looking up Steam Flatpak installation instructions.\"}\n\n"
             "User: \"Create a directory called Projects in my Documents folder\"\n"
-            "Response: {\"thought\": \"User requested creating directory ~/Documents/Projects; executing mkdir command.\", \"tool\": \"execute_terminal_command\", \"args\": {\"command\": \"mkdir -p ~/Documents/Projects\", \"explanation\": \"Created directory Projects in Documents folder.\"}, \"status\": \"complete\", \"spoken_summary\": \"Created directory Projects in your Documents folder.\"}\n\n"
+            "Response: {\"thought\": \"make the directory\", \"tool\": \"execute_terminal_command\", \"args\": {\"command\": \"mkdir -p ~/Documents/Projects\", \"explanation\": \"Created directory Projects in Documents folder.\"}, \"status\": \"complete\", \"spoken_summary\": \"Created directory Projects in your Documents folder.\"}\n\n"
             "User: \"Open VS Code\"\n"
-            "Response: {\"thought\": \"User requested launching Visual Studio Code; using app_launcher tool with app_name code.\", \"tool\": \"app_launcher\", \"args\": {\"app_name\": \"code\"}, \"status\": \"complete\", \"spoken_summary\": \"Opening Visual Studio Code.\"}\n\n"
+            "Response: {\"thought\": \"launch VS Code\", \"tool\": \"app_launcher\", \"args\": {\"app_name\": \"code\"}, \"status\": \"complete\", \"spoken_summary\": \"Opening Visual Studio Code.\"}\n\n"
             "User: \"Close Steam\"\n"
-            "Response: {\"thought\": \"User requested closing Steam application; using close_app tool with app_name steam.\", \"tool\": \"close_app\", \"args\": {\"app_name\": \"steam\"}, \"status\": \"complete\", \"spoken_summary\": \"Closed Steam.\"}\n\n"
+            "Response: {\"thought\": \"close Steam\", \"tool\": \"close_app\", \"args\": {\"app_name\": \"steam\"}, \"status\": \"complete\", \"spoken_summary\": \"Closed Steam.\"}\n\n"
             "User: \"Unpause YouTube and pause Spotify playback\"\n"
-            "Response: {\"thought\": \"User requested unpausing YouTube and pausing Spotify in a single multi-intent query; executing both media actions via media_play_pause.\", \"tool\": \"media_play_pause\", \"args\": [{\"action\": \"play\", \"player\": \"youtube\"}, {\"action\": \"pause\", \"player\": \"spotify\"}], \"status\": \"complete\", \"spoken_summary\": \"Unpaused YouTube and paused Spotify playback.\"}\n\n"
+            "Response: {\"thought\": \"two media actions\", \"tool\": \"media_play_pause\", \"args\": [{\"action\": \"play\", \"player\": \"youtube\"}, {\"action\": \"pause\", \"player\": \"spotify\"}], \"status\": \"complete\", \"spoken_summary\": \"Unpaused YouTube and paused Spotify playback.\"}\n\n"
             "User: \"Turn off my smart kitchen lights\"\n"
-            "Response: {\"thought\": \"User requested smart home control which is unsupported; falling back gracefully.\", \"tool\": \"none\", \"args\": {}, \"status\": \"complete\", \"spoken_summary\": \"I don't have a tool to control kitchen lights, but I can help manage your computer.\"}\n"
+            "Response: {\"thought\": \"unsupported, explain\", \"tool\": \"none\", \"args\": {}, \"status\": \"complete\", \"spoken_summary\": \"I don't have a tool to control kitchen lights, but I can help manage your computer.\"}\n"
             "</few_shot_examples>\n\n"
             "<available_tools>\n"
             f"{self.registry.get_llm_tool_descriptions()}\n"
@@ -238,7 +240,7 @@ class AgentOrchestrator:
             "<response_schema>\n"
             "You MUST respond ONLY with a raw JSON object matching:\n"
             "{\n"
-            '  "thought": "Reasoning step...",\n'
+            '  "thought": "intent, tool (max 6 words)",\n'
             '  "tool": "<exact_tool_id_or_none>",\n'
             '  "args": { ... },\n'
             '  "status": "continue" | "complete",\n'
@@ -255,6 +257,8 @@ class AgentOrchestrator:
     def _speak(self, text: str):
         if self.tts and text:
             with self.speech_lock:
+                if self.speak_listener:
+                    self.speak_listener(text)  # show the words as they start, not after
                 self.tts.speak(text, block=True)
 
     def _strip_address(self, user_query: str, m: "re.Match") -> str:

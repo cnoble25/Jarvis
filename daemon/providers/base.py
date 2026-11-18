@@ -5,6 +5,7 @@ Defines standard provider interface contracts for STT, LLM Orchestrator, and TTS
 
 from abc import ABC, abstractmethod
 import os
+import time
 import wave
 import shutil
 import subprocess
@@ -153,6 +154,7 @@ class BaseTTSProvider(ABC):
 
         target_voice = voice or self.get_default_voice()
 
+        synth_started = time.perf_counter()
         try:
             samples, sample_rate = self._synthesize_audio(text, target_voice, speed)
         except Exception as err:
@@ -177,6 +179,8 @@ class BaseTTSProvider(ABC):
                     wf.setframerate(sample_rate)
                     wf.writeframes(int16_samples.tobytes())
 
+                self.last_synth_seconds = time.perf_counter() - synth_started
+                self.last_playback_started = time.perf_counter()
                 if block:
                     subprocess.run([self.player_cmd, wav_path], check=False)
                 else:
