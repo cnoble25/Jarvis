@@ -20,7 +20,7 @@ import json
 from typing import Any, Dict, Optional
 from PySide6.QtCore import Qt, QUrl, QSize, QTimer, QObject, Signal, QPoint, Slot
 from PySide6.QtWidgets import QApplication, QMainWindow
-from PySide6.QtGui import QShortcut, QKeySequence
+from PySide6.QtGui import QIcon, QShortcut, QKeySequence
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
 
@@ -59,6 +59,7 @@ BASE_DIR = Path(__file__).resolve().parent
 INDEX_HTML_PATH = BASE_DIR / "ui" / "index.html"
 HUD_HTML_PATH = BASE_DIR / "ui" / "hud.html"
 PANEL_HTML_PATH = BASE_DIR / "ui" / "panel.html"
+ICON_PATH = BASE_DIR / "ui" / "icons" / "jarvis.svg"
 
 # Always-on-top overlays (the pill, the task panel): XWayland override-redirect windows, which
 # KWin stacks above every managed window, fullscreen ones included, and which never take focus
@@ -121,6 +122,9 @@ class TriggerBridge(QObject):
     # Live events for the dashboard page: (event name, JSON payload). Emitted from worker threads,
     # delivered on the GUI thread by Qt's queued connection.
     dashboard_event_signal = Signal(str, str)
+    # From the IPC thread: a second launch asks for the dashboard; `jarvis --quit` asks to quit.
+    show_dashboard_signal = Signal()
+    quit_signal = Signal()
 
 
 class WebBridgeApi(QObject):
@@ -165,6 +169,18 @@ class DashboardWindow(QMainWindow):
 
         if self.bridge:
             self.bridge.dashboard_event_signal.connect(self.push_event)
+            self.bridge.show_dashboard_signal.connect(self.bring_forward)
+
+    def bring_forward(self):
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def closeEvent(self, event):
+        # Closing the window only hides it: Jarvis keeps listening for the shortcut. Quit with
+        # `jarvis --quit` (or stop the login service).
+        event.ignore()
+        self.hide()
 
     def push_event(self, name: str, payload_json: str):
         """Hand a live voice-loop event to the page (see window.jarvisEvent in ui/js/app.js)."""
@@ -316,7 +332,8 @@ class HUDWindow(QMainWindow):
 
 
 class JarvisApplication:
-    def __init__(self):
+    def __init__(self, start_hidden: bool = False):
+        self.start_hidden = start_hidden  # at login: run quietly, dashboard opens from the app menu
         print("==================================================")
         print("      Starting Jarvis Desktop Voice Assistant     ")
         print("==================================================")
@@ -391,7 +408,14 @@ class JarvisApplication:
         """
         Handles incoming JSON-RPC commands from the GUI dashboard.
         """
-        if action == "get_status":
+        if action == "show_dashboard":
+            self.start_hidden = False  # in case the window doesn't exist yet
+            self.bridge.show_dashboard_signal.emit()
+            return {"success": True}
+        elif action == "quit":
+            self.bridge.quit_signal.emit()
+            return {"success": True}
+        elif action == "get_status":
             if params.get("recheck"):
                 self._llm_check_cache = {"at": 0.0, "result": None}
             return self._build_status()
@@ -1007,9 +1031,16 @@ class JarvisApplication:
         Launches PySide6 QApplication loop.
         """
         self.qt_app = QApplication(sys.argv)
+        self.qt_app.setApplicationName("Jarvis")
+        self.qt_app.setDesktopFileName("jarvis")  # matches jarvis.desktop: app-menu icon and name
+        if ICON_PATH.exists():
+            self.qt_app.setWindowIcon(QIcon(str(ICON_PATH)))
+        self.qt_app.setQuitOnLastWindowClosed(False)  # the dashboard hides; Jarvis keeps running
+        self.bridge.quit_signal.connect(self.qt_app.quit)
 
         self.dashboard_win = DashboardWindow(app_instance=self, bridge=self.bridge)
-        self.dashboard_win.show()
+        if not self.start_hidden:
+            self.dashboard_win.show()
 
         if HUD_HTML_PATH.exists():
             self.hud_win = HUDWindow(bridge=self.bridge)
@@ -1025,6 +1056,30 @@ class JarvisApplication:
         sys.exit(self.qt_app.exec())
 
 
+def cli():
+    import argparse
+    from daemon import app_control
+
+    parser = argparse.ArgumentParser(prog="jarvis", description="Jarvis, the voice assistant.")
+    parser.add_argument("--background", action="store_true",
+                        help="start without opening the dashboard (how the login service starts it)")
+    parser.add_argument("--quit", action="store_true", help="quit the running Jarvis")
+    args = parser.parse_args()
+
+    running = app_control.is_running()
+    if args.quit:
+        if running:
+            app_control.request("quit")
+        print("Jarvis is quitting." if running else "Jarvis isn't running.")
+        return
+    if running:
+        # One Jarvis at a time: a second one would take over the socket and the hotkey.
+        if not args.background:
+            app_control.request("show_dashboard")
+        print("Jarvis is already running" + ("." if args.background else "; brought the dashboard forward."))
+        return
+    JarvisApplication(start_hidden=args.background).run()
+
+
 if __name__ == "__main__":
-    app = JarvisApplication()
-    app.run()
+    cli()

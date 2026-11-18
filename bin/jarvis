@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Jarvis launcher: the app-menu entry and `jarvis` on your PATH run this.
+#   jarvis              open the dashboard (starting Jarvis first if it isn't running)
+#   jarvis --quit       quit the running Jarvis
+#   jarvis --background start without opening the dashboard
+# With the login service installed (bin/install-app), Jarvis is started through it, so logging
+# and restart-after-crash work the same as at login.
+set -u
+REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+PY="$REPO/.venv/bin/python"
+cd "$REPO"
+
+running() { "$PY" -m daemon.app_control running; }
+
+if [ $# -eq 0 ] && [ -z "${INVOCATION_ID:-}" ] && ! running \
+   && systemctl --user cat jarvis.service >/dev/null 2>&1; then
+  systemctl --user start jarvis.service
+  # Loading the speech models takes a few seconds; then ask it for the dashboard.
+  for _ in $(seq 120); do running && break; sleep 0.5; done
+fi
+exec "$PY" "$REPO/main.py" "$@"

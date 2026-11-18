@@ -120,6 +120,17 @@ source .venv/bin/activate
 python3 main.py
 ```
 
+### Install as an app (start at login)
+```bash
+bin/install-app
+```
+This sets Jarvis up for your user, no root needed:
+- **Jarvis** in the app menu (with its icon) and `jarvis` on your PATH. Opening it while Jarvis is running brings the dashboard forward; only one Jarvis runs at a time.
+- A systemd user service that starts Jarvis quietly at login (the dashboard stays closed until you open it) and restarts it if it crashes.
+- Closing the dashboard only hides it; Jarvis keeps listening. Quit with `jarvis --quit` (or *Quit Jarvis* on the menu entry).
+
+It runs from this folder and its `.venv`, so after a `git pull` run `systemctl --user restart jarvis`. Logs go to `~/.local/share/jarvis/jarvis.log`. `bin/install-app --no-login` skips start at login; `bin/install-app --uninstall` removes it all.
+
 ### Voice Usage
 1. Press and hold **`Super + Space`** anywhere on your desktop.
 2. Speak your command into your microphone.

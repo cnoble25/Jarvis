@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Jarvis: the voice droplet on deep water, with the ripple it drops when you speak. -->
+  <defs>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16384a"/>
+      <stop offset="1" stop-color="#0a1c28"/>
+    </linearGradient>
+    <radialGradient id="drop" cx="0.42" cy="0.36" r="0.75">
+      <stop offset="0" stop-color="#e8f2f4"/>
+      <stop offset="0.35" stop-color="#9adde3"/>
+      <stop offset="1" stop-color="#4fa9b8"/>
+    </radialGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="30" fill="url(#water)"/>
+  <ellipse cx="64" cy="84" rx="46" ry="13" fill="none" stroke="#7fd1d9" stroke-opacity="0.22" stroke-width="2.5"/>
+  <ellipse cx="64" cy="84" rx="31" ry="8" fill="none" stroke="#7fd1d9" stroke-opacity="0.45" stroke-width="2.5"/>
+  <path d="M64 22c6 12 22 26 22 42 0 13-10 21-22 21s-22-8-22-21c0-16 16-30 22-42z" fill="url(#drop)"/>
+</svg>
