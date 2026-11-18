@@ -359,6 +359,7 @@ class JarvisApplication:
         from daemon.agent.tasks import TaskBoard
         self.orchestrator.task_board = TaskBoard(listener=self._on_task_event)
         self.orchestrator.speak_listener = lambda text: self.bridge.update_hud_signal.emit("TTS_SPEAKING", text)
+        self.orchestrator.claude_code_model = lambda: self.provider_factory.settings.get("claude_code_model", "haiku")
 
         self.recorder = AudioRecorder()
 
@@ -836,7 +837,9 @@ class JarvisApplication:
         self.voice_state = "listening"
         self._dashboard_event("listening")
         self.bridge.show_hud_signal.emit()
-        self.bridge.update_hud_signal.emit("RECORDING_STARTED", "")
+        # Inside the Claude follow-up window, say so: what you say next goes back to Claude.
+        claude_followup = self.orchestrator.claude_followup_active()
+        self.bridge.update_hud_signal.emit("RECORDING_CLAUDE" if claude_followup else "RECORDING_STARTED", "")
 
         self.ipc_server.broadcast_event("RECORDING_STARTED", {"mode": "hold_to_talk"})
 

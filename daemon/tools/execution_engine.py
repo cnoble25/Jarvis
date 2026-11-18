@@ -251,6 +251,43 @@ class ExecutionEngine:
 
         return {"success": False, "exit_code": 1, "stdout": "", "stderr": f"Failed to execute web search for '{query}'"}
 
+    # ---- Finding files by a spoken name --------------------------------------------------------
+
+    SEARCH_ROOTS = [("~", 6), ("/tmp", 3), ("/run/media", 5), ("/mnt", 4)]
+    SEARCH_SKIP = [".cache", ".local/share/Trash", "node_modules", ".git", ".venv", "site-packages", ".steam", "compatdata"]
+
+    def _search_files(self, query: str) -> Dict[str, Any]:
+        """
+        Files and folders whose names match a spoken name loosely: "Jarvis CC demo" finds
+        jarvis-cc-demo, JarvisCCDemo and jarvis_cc_demo. Searches the home folder, /tmp and external
+        drives, newest first, and says where it looked.
+        """
+        tokens = [t for t in re.split(r"[\s_\-.]+", query.lower()) if t]
+        if not tokens:
+            return {"success": False, "exit_code": 1, "stdout": "", "stderr": "No name to search for.",
+                    "spoken_confirmation": "What should I look for?"}
+        pattern = "*" + "*".join(tokens) + "*"
+        roots = [(os.path.expanduser(r), depth) for r, depth in self.SEARCH_ROOTS if os.path.isdir(os.path.expanduser(r))]
+        found = []
+        for root, depth in roots:
+            cmd = ["find", root, "-maxdepth", str(depth)]
+            for skip in self.SEARCH_SKIP:
+                cmd += ["-path", f"*/{skip}", "-prune", "-o"]
+            cmd += ["-iname", pattern, "-print"]
+            try:
+                out = subprocess.run(cmd, capture_output=True, text=True, timeout=8).stdout
+            except subprocess.TimeoutExpired:
+                continue
+            found += [line for line in out.splitlines() if line]
+        found = sorted(set(found), key=lambda f: os.path.getmtime(f) if os.path.exists(f) else 0, reverse=True)[:15]
+        places = ", ".join("your home folder" if r == os.path.expanduser("~") else r for r, _ in roots)
+        if not found:
+            return {"success": True, "exit_code": 0, "stdout": f"No matches for {pattern!r} in {places}.", "stderr": "",
+                    "spoken_confirmation": f"I couldn't find anything named {query} in {places}."}
+        listing = "\n".join(("[folder] " if os.path.isdir(f) else "") + f for f in found)
+        return {"success": True, "exit_code": 0, "stdout": f"Matches (newest first), searched {places}:\n{listing}",
+                "stderr": "", "spoken_confirmation": f"Found {len(found)} match{'es' if len(found) != 1 else ''}; the newest is {os.path.basename(found[0])}."}
+
     # ---- Volume and screenshots ------------------------------------------------------------------
 
     @staticmethod
@@ -583,6 +620,9 @@ class ExecutionEngine:
                 res["spoken_confirmation"] = "Checked locked-in mode status."
 
             return res
+
+        if tool_id == "search_files":
+            return self._search_files(str(args.get("query") or args.get("name") or ""))
 
         if tool_id == "volume_control":
             return self._volume(args)

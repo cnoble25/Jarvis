@@ -10,7 +10,7 @@ from daemon.agent.fast_path_manager import FastPathManager
 
 
 # Tools whose arguments are free-form or depend on the moment: replaying them blindly is unsafe.
-NEVER_LEARN = {"execute_terminal_command", "Bash", "Edit", "web_search", "cancel_task", "background_task",
+NEVER_LEARN = {"execute_terminal_command", "Bash", "Edit", "web_search", "cancel_task", "background_task", "claude_code_task",
                "update_memory_profile", "system_power_control"}
 
 

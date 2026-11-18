@@ -308,7 +308,6 @@
     "risk_level": "SAFE",
     "spoken_confirmation_template": "Updated memory profile: {key} set to {value}."
   },
-
   {
     "id": "get_current_time",
     "name": "Get Current Time & Date",
@@ -455,5 +454,38 @@
     ],
     "risk_level": "SAFE",
     "spoken_confirmation_template": "Closed {app_name}."
+  },
+  {
+    "id": "claude_code_task",
+    "name": "Hand a Task to Claude Code",
+    "version": "1.0.0",
+    "description": "Hands a multi-step computer task to Claude Code, an agent that can read and edit files, run shell commands, and search the web on its own until the task is done (risky steps wait for the user's OK). Use it for installs, setting things up, organizing or editing files, coding, and research that needs several steps. Do NOT use it for single desktop actions that another tool already does (media, volume, apps, timers, macros).",
+    "category": "system",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string",
+          "description": "The whole task in plain words, with every detail the user gave (names, paths, preferences). Claude Code can't see this conversation."
+        }
+      },
+      "required": [
+        "task"
+      ]
+    },
+    "execution": {
+      "type": "command_template",
+      "template": "builtin_claude_code_task"
+    },
+    "examples": [
+      {
+        "user_prompt": "Install the Jane Street Socratic skill for Claude Code",
+        "expected_args": {
+          "task": "Install the Jane Street socratic-tutor skill (github.com/janestreet/agent_skills) into ~/.claude/skills so Claude Code can use it."
+        }
+      }
+    ],
+    "risk_level": "MEDIUM",
+    "spoken_confirmation_template": "Claude Code finished the task."
   }
 ]

@@ -23,7 +23,7 @@ BLOCK_PATTERNS = [
 ]
 
 SAFE_PROGRAMS = {
-    "ls", "cat", "head", "tail", "wc", "grep", "rg", "echo", "printf", "pwd", "date", "whoami", "id",
+    "cd", "pushd", "popd", "ls", "cat", "head", "tail", "wc", "grep", "rg", "echo", "printf", "pwd", "date", "whoami", "id",
     "uname", "hostname", "uptime", "df", "du", "free", "ps", "pgrep", "which", "type", "file", "stat",
     "realpath", "basename", "dirname", "sort", "uniq", "cut", "tr", "true", "false", "sleep", "exit",
     "test", "[", "lsblk", "lscpu", "lspci", "lsusb", "nvidia-smi", "sensors", "playerctl", "pactl",
@@ -38,6 +38,10 @@ READ_ONLY_SUBCOMMANDS = {
     "systemctl": {"status", "is-active", "is-enabled", "list-units", "--user"},
     "ollama": {"list", "ps", "show"},
 }
+# Shell syntax around commands ("for f in *; do file "$f"; done"): the commands inside are checked.
+LEADING_KEYWORDS = {"do", "then", "else", "elif", "if", "while", "until", "!", "{", "(", "time"}
+CLOSING_KEYWORDS = {"done", "fi", "esac", "}", ")"}
+SUBSTITUTION = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
 CONTROL_OPERATORS = {"&&", "||", ";", "|", "&", "\n", ";;", "|&"}
 # Approving or refusing a pending action by voice: the whole utterance must be one of these.
 _APPROVE_WORDS = {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "go", "ahead", "do", "it", "run",
@@ -71,10 +75,20 @@ def _segments(command: str) -> Optional[List[List[str]]]:
 
 
 def _segment_is_safe(words: List[str]) -> bool:
-    # Drop leading VAR=value assignments.
-    while words and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]):
+    # Drop leading VAR=value assignments and shell keywords: what matters is the command they run.
+    while words and (re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[0]) or words[0] in LEADING_KEYWORDS):
         words = words[1:]
-    if not words:
+    if not words or words[0] in CLOSING_KEYWORDS:
+        return True
+    if words[0] == "case" and ")" in words:  # "case $x in pattern) command": check the command
+        words = words[words.index(")") + 1:]
+    elif ")" in words[:3]:  # a later branch: "pattern) command"
+        words = words[words.index(")") + 1:]
+    elif words[0] in ("for", "case"):  # "for f in a b", "case $x in": only names, a list, a pattern
+        return all(not re.search(r"[<>]", w) for w in words)
+    while words and words[0] in LEADING_KEYWORDS:
+        words = words[1:]
+    if not words or words[0] in CLOSING_KEYWORDS:
         return True
     # Redirections: writing anywhere but /dev/null changes files.
     for i, w in enumerate(words):
@@ -113,6 +127,15 @@ def command_risk(command: str) -> Tuple[str, str]:
     for pat in BLOCK_PATTERNS:
         if re.search(pat, cmd):
             return "block", "That command could wipe data, so I won't run it."
+    # $(...) and `...`: check what runs inside, innermost first, then treat each as a plain word.
+    for _ in range(10):
+        m = SUBSTITUTION.search(cmd)
+        if not m:
+            break
+        inner = m.group(1) if m.group(1) is not None else m.group(2)
+        if command_risk(inner)[0] != "safe":
+            return "confirm", "runs commands I can't check in advance"
+        cmd = cmd[:m.start()] + "SUBSTITUTED" + cmd[m.end():]
     if "$(" in cmd or "`" in cmd or "<(" in cmd or "sudo " in f" {cmd} " or "pkexec" in cmd:
         return "confirm", "runs commands I can't check in advance"
     segments = _segments(cmd)

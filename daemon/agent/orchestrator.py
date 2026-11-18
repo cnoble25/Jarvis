@@ -25,10 +25,16 @@ from daemon.agent.approval import approval_needed, is_approval, is_refusal
 PROMOTE_AFTER = 4.0
 COMMAND_GRACE = 1.5
 APPROVAL_TIMEOUT = 300  # seconds a step waits for the user's OK
-BACKGROUND_TOOLS = {"execute_terminal_command", "Bash", "Edit"}
+BACKGROUND_TOOLS = {"execute_terminal_command", "Bash", "Edit", "claude_code_task"}
 BACKGROUND_MAX_STEPS = 6
 BACKGROUND_COMMAND_TIMEOUT = 300
 OBSERVATION_CHARS = 2000
+CLAUDE_FOLLOWUP_SECONDS = 120
+JARVIS_ADDRESS = re.compile(r"^\s*(?:(?:hey|ok(?:ay)?|yo)[\s,]+)?jarvis\b", re.IGNORECASE)
+# Claude Code tools that only read: they run without asking (as Jarvis's own searches do).
+# Jarvis tools not offered to Claude Code: it has its own shell, web search and file search.
+CLAUDE_CODE_SKIPS = {"execute_terminal_command", "claude_code_task", "web_search", "search_files"}
+CLAUDE_CODE_READ_ONLY = {"Read", "Glob", "Grep", "LS", "WebSearch", "WebFetch", "TodoWrite", "Task", "Agent", "NotebookRead"}
 INSPECTION_TOOLS = {"web_search", "get_current_time", "system_status", "search_files", "View", "Grep"}
 _TASK_WORDS = r"the\s+(?:task|install\w*|download\w*|command)"
 # "Cancel", "never mind", "stop that", "stop the task" (a bare "stop" is left to media controls).
@@ -89,6 +95,9 @@ class AgentOrchestrator:
         self.task_board: Optional[TaskBoard] = None
         self._history_lock = threading.Lock()
         self.speech_lock = threading.RLock()
+        # The model Claude Code tasks run on (the app reads it from settings).
+        self.claude_code_model: Callable[[], str] = lambda: "haiku"
+        self._claude_session: Optional[Dict[str, Any]] = None  # {"id", "until"}: the follow-up window
         # Called with the reply text right before it is spoken (the app shows it in the pill).
         self.speak_listener: Optional[Callable[[str], None]] = None
 
@@ -183,7 +192,7 @@ class AgentOrchestrator:
             "<system_instructions>\n"
             "1. **Analyze Intent & Category**:\n"
             "   - **Category A (Inspection & Discovery Tools)**: 'web_search', 'search_files', 'get_current_time', 'system_status'. Use tool and set \"status\": \"continue\". This allows the ReAct engine to read tool search results / stdout before executing terminal commands or answering.\n"
-            "   - **Category B (Action & Execution Tools)**: 'macro_control', 'execute_terminal_command', 'app_launcher', 'close_app', 'system_power_control', 'volume_control', 'media_play_pause', 'set_timer', 'locked_in_mode', 'update_memory_profile', 'take_screenshot', 'open_terminal', 'calendar_create_event'. Use tool and set \"status\": \"complete\" (or \"status\": \"continue\" if you need to read command stdout before answering).\n"
+            "   - **Category B (Action & Execution Tools)**: 'macro_control', 'execute_terminal_command', 'claude_code_task', 'app_launcher', 'close_app', 'system_power_control', 'volume_control', 'media_play_pause', 'set_timer', 'locked_in_mode', 'update_memory_profile', 'take_screenshot', 'open_terminal', 'calendar_create_event'. Use tool and set \"status\": \"complete\" (or \"status\": \"continue\" if you need to read command stdout before answering).\n"
             "   - **Category C (General Conversation & Greetings)**: 'hello', 'who are you', 'thank you', 'tell me a joke'. Set \"tool\": \"none\", \"args\": {}, \"status\": \"complete\".\n"
             "   - **Category D (Fallback for Unsupported Tasks & Missing Tools)**: If the user requests an action or information that CANNOT be accomplished with the tools in <available_tools> (such as tracking Saturn V rocket GPS, smart home appliance control, ordering pizza, cooking, or physical world tasks), set \"tool\": \"none\", \"args\": {}, \"status\": \"complete\", and explain in 'spoken_summary' that you do not have a tool to perform that specific task.\n"
             "2. **Strict Tool & Output Format Rules**:\n"
@@ -193,7 +202,7 @@ class AgentOrchestrator:
             "   - CRITICAL MACRO RULE: Do NOT invent or hallucinate non-existent macro names! For `macro_control` with `action: \"run\"`, `macro_name` MUST be an exact existing macro ID from <available_user_macros>. If the user asks to perform multiple individual actions (such as pausing Spotify and opening Steam) and no matching macro exists, do NOT run `macro_control`! Instead, execute each action using individual tools (e.g. `media_play_pause` and `app_launcher`).\n"
             "   - SINGLE-TOOL MULTI-ACTION EFFICIENCY: `media_play_pause` accepts an ARRAY of action objects! For multi-intent media requests (such as \"Pause Spotify, play YouTube\"), execute ALL media actions in a single array `[{\"action\": \"pause\", \"player\": \"spotify\"}, {\"action\": \"play\", \"player\": \"youtube\"}]` in Step 1 with \"status\": \"complete\". Do NOT split single-tool media queries across multiple ReAct steps!\n"
             "   - MULTI-TOOL QUERIES (DIFFERENT TOOLS): ONLY set \"status\": \"continue\" across ReAct steps if a query requires TWO DIFFERENT tools (e.g. `close_app` for Steam AND `media_play_pause` for Spotify) that cannot be combined into a single tool call.\n"
-            "   - When installing software, packages, or complex terminal operations, use 'web_search' first with \"status\": \"continue\" to look up exact package names / Flatpak IDs, then use 'execute_terminal_command' to run the command!\n"
+            "   - For multi-step jobs (installing or setting something up, organizing or editing files, coding, research across several pages), use 'claude_code_task' with the whole task described in plain words: Claude Code works through it on its own. Use 'execute_terminal_command' only for a single, simple command.\n"
             "   - For file system operations (creating directories with mkdir, writing text to files, reading files, process checks), use \"tool\": \"execute_terminal_command\" with \"args\": {\"command\": \"...\"}.\n"
             "   - CRITICAL: To launch desktop apps, ALWAYS set \"tool\": \"app_launcher\" and pass app name in args.\n"
             "   - CRITICAL: To close, exit, or terminate running desktop apps, ALWAYS set \"tool\": \"close_app\" and pass app_name in args (e.g. {\"app_name\": \"steam\"}).\n"
@@ -340,6 +349,30 @@ class AgentOrchestrator:
         # Unified Data-Driven Fast-Path Interceptor (System Defaults + Dynamic Learned Rules)
         fast_match = None if provider is not self.llm_provider else self.fast_path_manager.match(user_query, active_model_name=self.get_active_model_name())
         first_step = None
+        # "Jarvis, ..." ends a Claude follow-up window; anything else said in it goes back to Claude
+        # (shortcut commands like "pause music" still run instantly).
+        if JARVIS_ADDRESS.match(user_query):
+            self._claude_session = None
+        followup = route_label is None and fast_match is None and self.claude_followup_active()
+        if followup:
+            route_label = "Claude Code"
+            meta["route"] = {"label": "Claude Code", "model": self.claude_code_model(), "followup": True}
+            print(f"[AgentOrchestrator] Follow-up to Claude Code: \"{user_query}\"", flush=True)
+            if self.route_listener:
+                self.route_listener("Claude Code")
+        if route_label == "Claude Code":
+            # "Hey Claude, ..." opens a Claude Code session directly: it can use its own tools and
+            # Jarvis's desktop tools, so there is no separate model call to pick a tool first.
+            # Within the follow-up window the same session continues, so Claude remembers it.
+            resume = self._claude_session["id"] if self.claude_followup_active() else None
+            task_text = user_query
+            if not resume:
+                with self._history_lock:
+                    recent = self.conversation_history[-4:]
+                context = "\n".join(f"{'User' if m['role'] == 'user' else 'Jarvis'}: {str(m['content'])[:300]}" for m in recent)
+                task_text += f"\n\nEarlier in the conversation, for context:\n{context}" if context else ""
+            first_step = {"tool": "claude_code_task", "args": {"task": task_text, "resume": resume},
+                          "status": "complete", "spoken_summary": "Asking Claude Code."}
         if fast_match:
             print(f"[AgentOrchestrator] Intercepted Fast-Path Query ('{user_query}') -> Rule '{fast_match.get('rule_id')}'", flush=True)
             fp_args = {**fast_match.get("args", {}), "_raw_user_query": user_query}
@@ -420,6 +453,96 @@ class AgentOrchestrator:
         task.approval["state"] = state
         update()
         return state
+
+    def claude_followup_active(self) -> bool:
+        s = self._claude_session
+        return bool(s and time.monotonic() < s["until"])
+
+    def _run_claude_code(self, task: BackgroundTask, task_text: str, update: Callable,
+                         resume: Optional[str] = None) -> Dict[str, Any]:
+        """Hand the task to Claude Code; its steps join this task, its risky steps wait for an OK."""
+        from daemon.agent.claude_code_agent import ClaudeCodeSession
+        from daemon.agent.approval import command_risk
+        from daemon.providers.llm.claude_code_llm_provider import _shorten
+
+        def decide(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
+            if tool_name in CLAUDE_CODE_READ_ONLY or tool_name.startswith("mcp__jarvis__"):
+                # Jarvis's own tools apply Jarvis's approval rules when they run (call_tool below).
+                return {"behavior": "allow", "updatedInput": tool_input}
+            if tool_name == "Bash":
+                command = str(tool_input.get("command", ""))
+                risk, reason = command_risk(command)
+                if risk == "safe":
+                    return {"behavior": "allow", "updatedInput": tool_input}
+                if risk == "block":
+                    return {"behavior": "deny", "message": reason}
+                needs = {"label": str(tool_input.get("description") or "Run a command"), "detail": command}
+            elif tool_name in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+                path = str(tool_input.get("file_path") or tool_input.get("notebook_path") or "a file")
+                change = str(tool_input.get("content") or tool_input.get("new_string") or tool_input.get("new_source") or "")
+                verb = "Write" if tool_name == "Write" else "Edit"
+                needs = {"label": f"{verb} {path}", "detail": f"{path}\n{change[:600]}" if change else path}
+            else:
+                needs = {"label": f"Let Claude Code use {tool_name}", "detail": json.dumps(tool_input)[:600]}
+            with task.approval_lock:  # one question at a time, even if Claude Code asks in parallel
+                state = self._wait_for_approval(task, {**needs, "risk": "confirm"}, update)
+            if state == "approved":
+                return {"behavior": "allow", "updatedInput": tool_input}
+            return {"behavior": "deny", "message": "The user said no to this step." if state == "refused"
+                    else "No answer from the user, so this step didn't run."}
+
+        def jarvis_tools() -> List[Dict[str, Any]]:
+            out = []
+            for tool_id, manifest in sorted(self.registry._tools.items()):
+                if tool_id in CLAUDE_CODE_SKIPS or manifest is None:
+                    continue
+                out.append({"name": tool_id, "description": manifest.description,
+                            "inputSchema": manifest.parameters or {"type": "object", "properties": {}}})
+            return out
+
+        def call_tool(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+            if name not in self.registry._tools or name in CLAUDE_CODE_SKIPS:
+                return {"text": f"Unknown Jarvis tool '{name}'.", "is_error": True}
+            run_args = {**args, "_raw_user_query": task_text}
+            needs = approval_needed(name, run_args)
+            if needs and needs["risk"] == "block":
+                return {"text": needs["label"], "is_error": True}
+            if needs:
+                with task.approval_lock:
+                    if self._wait_for_approval(task, needs, update) != "approved":
+                        return {"text": "The user said no to this.", "is_error": True}
+            res = self.engine.execute_custom_tool(name, run_args)
+            text = " ".join(str(x) for x in (res.get("spoken_confirmation"), res.get("stdout")) if x)
+            return {"text": text or "Done.", "is_error": res.get("success") is False}
+
+        def on_step(event: str, step: Dict[str, str]):
+            if event == "step":
+                task.steps.append(step)
+                task.current = step["label"]
+            update()
+
+        def on_note(text: str):
+            task.current = text.splitlines()[0][:120]
+            update()
+
+        session = ClaudeCodeSession(task_text, self.claude_code_model(), decide, on_step, task.cancel_event, on_note,
+                                    tools=jarvis_tools, call_tool=call_tool, resume=resume)
+        print(f"[AgentOrchestrator] Task {task.id}: handing to Claude Code ({self.claude_code_model()}): {task_text!r}", flush=True)
+        self._claude_session = None  # no follow-ups into a session that is still running
+        outcome = session.run()
+        # Spoken aloud: drop markdown the model slipped in (`code`, **bold**, # headings).
+        text = re.sub(r"`|\*\*|^#+\s*", "", outcome.get("text", ""), flags=re.MULTILINE)
+        sid = outcome.get("session_id")
+        if sid and not outcome.get("cancelled"):
+            # Follow-ups in the next CLAUDE_FOLLOWUP_SECONDS continue this session.
+            self._claude_session = {"id": sid, "until": time.monotonic() + CLAUDE_FOLLOWUP_SECONDS}
+        return {
+            "success": bool(outcome.get("ok")),
+            "cancelled": bool(outcome.get("cancelled")),
+            "stdout": text if outcome.get("ok") else "",
+            "stderr": "" if outcome.get("ok") else text,
+            "spoken_confirmation": _shorten(text) or ("Claude Code finished." if outcome.get("ok") else "Claude Code couldn't finish."),
+        }
 
     def _run_react(self, task: BackgroundTask, provider: BaseLLMProvider, user_query: str, system_prompt: str,
                    prior: List[Dict[str, str]], meta: Dict[str, Any], session_id: str,
@@ -527,7 +650,10 @@ class AgentOrchestrator:
                 for single_args in args_list:
                     if not isinstance(single_args, dict):
                         continue
-                    if tool_name in ["Bash", "View", "Edit", "Grep", "ManageTools"]:
+                    if tool_name == "claude_code_task":
+                        last_result = self._run_claude_code(task, str(single_args.get("task") or user_query), update,
+                                                            resume=single_args.get("resume"))
+                    elif tool_name in ["Bash", "View", "Edit", "Grep", "ManageTools"]:
                         if tool_name == "Bash":
                             last_result = self.engine.execute_bash(single_args.get("command", ""))
                         elif tool_name == "View":
@@ -552,6 +678,10 @@ class AgentOrchestrator:
                 else:
                     tool_output = str(last_result.get("stdout") or last_result.get("spoken_confirmation") or "Command executed.")
                 tool_error = str(last_result.get("stderr", ""))
+                if tool_name == "claude_code_task":
+                    # Claude Code ends with a sentence written to be read aloud: say that, no extra model call.
+                    final_spoken = last_result.get("spoken_confirmation") or "Claude Code finished."
+                    break
                 inspecting = tool_name in INSPECTION_TOOLS or last_parsed.get("status") == "continue"
                 # A failed action goes back to the model, which can try another way (an app that isn't
                 # installed may be a website) or explain the failure, instead of a canned error.

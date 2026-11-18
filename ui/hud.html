@@ -95,6 +95,7 @@
     // Called from main.py's HUDWindow.update_hud_state(event, {text, spoken}).
     const STATES = {
       RECORDING_STARTED: ["listening", "Listening", () => "Listening…"],
+      RECORDING_CLAUDE: ["listening", "Claude", () => "Listening… still talking to Claude (say “Jarvis” to switch back)"],
       STT_PREVIEW: ["thinking", "Heard", (d) => d.text || "Transcribing…"],
       AGENT_THINKING: ["thinking", "Thinking", (d) => d.text || "Working out what to do…"],
       TTS_SPEAKING: ["speaking", "Jarvis", (d) => d.spoken || d.text || ""],

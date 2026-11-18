@@ -24,6 +24,8 @@ def describe_step(tool: str, args: Any) -> Dict[str, str]:
     if tool in ("View", "Grep", "search_files"):
         target = a.get("path") or a.get("pattern") or a.get("query") or ""
         return {"label": "Looking through files", "detail": str(target)}
+    if tool == "claude_code_task":
+        return {"label": "Handing it to Claude Code", "detail": str(a.get("task", ""))}
     if tool == "Edit":
         return {"label": "Editing a file", "detail": str(a.get("path", ""))}
     return {"label": tool.replace("_", " ").capitalize(), "detail": ""}
@@ -44,6 +46,7 @@ class BackgroundTask:
         # A step waiting for the user's OK: {"label", "detail", "state": waiting|approved|refused|expired}.
         self.approval: Optional[Dict[str, str]] = None
         self.approval_event = threading.Event()
+        self.approval_lock = threading.Lock()
         self.approved = False
         self.final_result: Dict[str, Any] = {}
         # Set once the foreground stops waiting and the task is announced on completion instead.
