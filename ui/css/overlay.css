@@ -14,13 +14,6 @@
   font-display: block;
 }
 
-@font-face {
-  font-family: "JetBrains Mono";
-  src: url("../fonts/jetbrains-mono-400.woff2") format("woff2");
-  font-weight: 400;
-  font-display: block;
-}
-
 :root {
   --ramp-1: #0a1c28;
   --ramp-2: #0e2433;
@@ -35,6 +28,8 @@
   --text-2: var(--ramp-9);
   --text-3: var(--ramp-8);
   --silt: #7fd1d9;
+  --silt-hover: #9adde3;
+  --on-silt: #062029;
   --silt-deep: #4fa9b8;
   --sage: #9fbfb1;
   --sage-deep: #6f9585;
@@ -44,11 +39,11 @@
   --amber-ground: #2c2a26;
   --amber-edge: #6e5c34;
   --font: "Atkinson Hyperlegible", "Noto Sans", "DejaVu Sans", system-ui, sans-serif;
-  --font-code: "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
+  --font-code: var(--font);  /* no monospace: the overlays are not a console */
   --t-meta: 13px;
   --t-body: 15px;
-  --radius: 8px;
-  --radius-small: 5px;
+  --radius: 14px;
+  --radius-small: 10px;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   /* The overlay surface is fully opaque: XWayland composites partial alpha far lighter than
      asked, which let busy windows show through the text. Never pure black. */
@@ -84,10 +79,11 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* Keep colour, drop travel: fades stay, movement goes. */
   *,
   *::before,
   *::after {
     animation: none !important;
-    transition: none !important;
+    transition-property: color, background-color, border-color, opacity !important;
   }
 }

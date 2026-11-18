@@ -179,6 +179,11 @@ class ProviderFactory:
     def get_available_llm_providers(self) -> list[dict[str, Any]]:
         return ProviderRegistry.list_llm_providers()
 
+    def voice_names(self, tts_id: str) -> Dict[str, str]:
+        """Readable names for a provider's voice IDs, where it has them (ElevenLabs IDs are opaque)."""
+        cls = ProviderRegistry.get_tts_provider_class(tts_id)
+        return dict(getattr(cls, "VOICE_NAMES", {}) or {})
+
     def get_voices_for_provider(self, tts_id: str) -> list[str]:
         if self.tts_provider and getattr(self, "_tts_id", None) == tts_id:
             return self.tts_provider.get_available_voices()

@@ -28,6 +28,8 @@ class AudioRecorder:
         self._frames = []
         self._stream = None
         self._vad_filter = VADFilter(sample_rate=self.sample_rate)
+        # Loudness of the latest chunk, 0..1, for the voice pill's ripple (smoothed: fast up, slow down).
+        self.level = 0.0
 
     def _audio_callback(self, indata: np.ndarray, frames: int, time_info: dict, status: sd.CallbackFlags):
         """
@@ -38,6 +40,11 @@ class AudioRecorder:
         if self.is_recording:
             # indata is 2D array of shape (frames, channels), copy frame data
             self._audio_queue.put(indata.copy())
+            # Speech sits around -40..-10 dBFS: map that range to 0..1.
+            rms = float(np.sqrt(np.mean(np.square(indata)))) if len(indata) else 0.0
+            db = 20 * np.log10(max(rms, 1e-6))
+            target = min(1.0, max(0.0, (db + 50) / 40))
+            self.level = target if target > self.level else self.level * 0.85 + target * 0.15
 
     def start_recording(self):
         """
@@ -54,6 +61,7 @@ class AudioRecorder:
                 break
 
         self.is_recording = True
+        self.level = 0.0
 
         self._stream = sd.InputStream(
             samplerate=self.sample_rate,

@@ -96,8 +96,17 @@ function render() {
   $("#tab-count").textContent = String(running.length || visible.length);
   $("#tab").classList.toggle("is-waiting", waiting);
   $("#tasks").replaceChildren(...visible.map(renderTask));
+  const wasShown = !$("#panel").hidden || !$("#tab").hidden;
   $("#panel").hidden = !visible.length || collapsed;
   $("#tab").hidden = !visible.length || !collapsed;
+  // Arriving from the screen edge: the capsule flows in and settles.
+  const shown = !$("#panel").hidden ? $("#panel") : !$("#tab").hidden ? $("#tab") : null;
+  if (shown && !wasShown && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    shown.animate([
+      { opacity: 0, transform: "translateX(28px) scale(0.96)", filter: "blur(6px)" },
+      { opacity: 1, transform: "none", filter: "blur(0)" },
+    ], { duration: 520, easing: "cubic-bezier(0.16, 1, 0.3, 1)" });
+  }
 
   if (visible.length && !ticker) ticker = setInterval(render, 1000);
   if (!visible.length && ticker) { clearInterval(ticker); ticker = null; }

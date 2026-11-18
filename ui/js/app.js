@@ -228,11 +228,103 @@ function showPage(pageId, { focus = false } = {}) {
     if (isActive) item.setAttribute("aria-current", "page");
     else item.removeAttribute("aria-current");
   });
+  const changed = !page.classList.contains("active");
   $$(".page-view").forEach((view) => view.classList.toggle("active", view === page));
   $(".main-content")?.scrollTo({ top: 0 });
   if (focus) page.querySelector("h1")?.focus({ preventScroll: true });
+  flowNav({ animate: changed });
+  if (pageId === "overview-page") deltaWaves.start();
+  if (changed) flowIn([...page.children]);
   pageLoaders[pageId]?.();
 }
+
+/* ---------- Liquid motion ---------- */
+
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+/* Things arriving settle like water: a short rise out of a blur. Capped stagger, already-visible
+   default (if this never runs, everything is simply there). */
+function flowIn(nodes, { stagger = 40, max = 240, distance = 10 } = {}) {
+  if (reduceMotion.matches) {
+    // No travel, but arrivals still read: a short fade.
+    nodes.filter((n) => n instanceof HTMLElement && !n.hidden).forEach((node) => {
+      node.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: "ease-out", fill: "backwards" });
+    });
+    return;
+  }
+  nodes.filter((n) => n instanceof HTMLElement && !n.hidden).forEach((node, i) => {
+    node.animate([
+      { opacity: 0, transform: `translateY(${distance}px) scale(0.985)`, filter: "blur(6px)" },
+      { opacity: 1, transform: "none", filter: "blur(0)" },
+    ], { duration: 460, delay: Math.min(i * stagger, max), easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "backwards" });
+  });
+}
+
+/* Where the chosen tab will be once labels finish opening and closing (they animate, so measuring
+   the tab at click time would aim at a moving target). Narrow windows open only the chosen label. */
+const narrowNav = window.matchMedia("(max-width: 1000px)");
+function flowTarget(active) {
+  const items = $$(".nav-item");
+  const nav = active.parentElement;
+  const gap = Number.parseFloat(getComputedStyle(nav).columnGap) || 0;
+  const widthOf = (item) => {
+    const label = $(".nav-label", item);
+    const open = !narrowNav.matches || item === active;
+    const labelNow = label ? label.offsetWidth : 0;
+    const labelFinal = label && open ? label.scrollWidth : 0;
+    // A closed tab also loses the gap between its icon and label.
+    const iconGap = Number.parseFloat(getComputedStyle(item).columnGap) || 0;
+    const gapNow = iconGap; // the stylesheet applies the chosen tab's gap immediately
+    const gapFinal = open ? (Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--s-2")) || 8) : 0;
+    return item.offsetWidth - labelNow - gapNow + labelFinal + gapFinal;
+  };
+  let x = items[0]?.offsetLeft ?? 0;
+  for (const item of items) {
+    if (item === active) break;
+    x += widthOf(item) + gap;
+  }
+  return { x, w: widthOf(active) };
+}
+
+/* The nav's liquid indicator: stretches from the old tab to the new one, then settles there. */
+let flowAnim = null;
+function flowNav({ animate = false } = {}) {
+  const flow = $(".nav-flow");
+  const active = $(".nav-item.active");
+  if (!flow || !active) return;
+  const { x, w } = flowTarget(active);
+  const oldX = Number.parseFloat(flow.style.getPropertyValue("--flow-x")) || x;
+  const oldW = Number.parseFloat(flow.style.getPropertyValue("--flow-w")) || w;
+  flow.style.setProperty("--flow-x", `${x}px`);
+  flow.style.setProperty("--flow-w", `${w}px`);
+  if (!animate || reduceMotion.matches || (oldX === x && oldW === w)) return;
+  flowAnim?.cancel();
+  const left = Math.min(oldX, x);
+  const span = Math.max(oldX + oldW, x + w) - left;
+  flowAnim = flow.animate([
+    { transform: `translateX(${oldX}px)`, width: `${oldW}px` },
+    { transform: `translateX(${left}px)`, width: `${span}px`, offset: 0.42 },
+    { transform: `translateX(${x}px)`, width: `${w}px` },
+  ], { duration: 560, easing: "cubic-bezier(0.22, 1, 0.36, 1)" });
+}
+
+function initLiquid() {
+  const flow = $(".nav-flow");
+  const nav = $(".nav");
+  flowNav();
+  // Labels open and close at narrow widths: keep the indicator under the chosen tab as they do.
+  if (nav && "ResizeObserver" in window) {
+    const ro = new ResizeObserver(() => { if (!flowAnim || flowAnim.playState !== "running") flowNav(); });
+    $$(".nav-item", nav).forEach((item) => ro.observe(item));
+  }
+  document.fonts?.ready.then(() => flowNav());
+  requestAnimationFrame(() => flow?.classList.add("is-ready"));
+  // The current under the page pauses while the window isn't visible.
+  const syncHidden = () => document.body.classList.toggle("window-hidden", document.hidden);
+  document.addEventListener("visibilitychange", syncHidden);
+  syncHidden();
+}
+
 
 function initNavigation() {
   $$(".nav-item").forEach((item) => {
@@ -242,7 +334,7 @@ function initNavigation() {
     const link = e.target.closest("[data-goto]");
     if (link) showPage(link.dataset.goto, { focus: true });
   });
-  // Alt+1..6 switches pages, matching the sidebar order.
+  // Alt+1..6 switches pages, in the order of the top capsule.
   document.addEventListener("keydown", (e) => {
     if (!e.altKey || e.ctrlKey || e.metaKey || recorder.active) return;
     const index = Number.parseInt(e.key, 10);
@@ -309,7 +401,7 @@ function renderStatus(s) {
   setText("#metric-ipc", ipcRunning ? `Scripts can reach Jarvis at ${s.ipc.socket_path}` : "Stopped. Scripts can't reach Jarvis.");
   $("#metric-ipc")?.classList.toggle("is-error", !ipcRunning);
 
-  // One line in the sidebar for whatever needs the user right now.
+  // One capsule in the top bar for whatever needs the user right now.
   const needs = !ipcRunning ? "Needs you: script access stopped." : "";
   const needsNode = $("#needs-you");
   if (needsNode) {
@@ -496,63 +588,70 @@ function renderDelta() {
     .sort((a, b) => b.n - a.n);
   if (counts.has("failed")) channels.push(counts.get("failed"));
 
-  const W = 600;
-  const H = 120;
-  const mid = H / 2;
-  const trunkEnd = 210;
-  const mouth = W;
-  const maxWidth = 34;
-  const trunkWidth = Math.max(4, Math.min(maxWidth, 8 + total * 0.6));
-  const ns = "http://www.w3.org/2000/svg";
-  const path = (d, cls, width) => {
-    const p = document.createElementNS(ns, "path");
-    p.setAttribute("d", d);
-    p.setAttribute("class", cls);
-    p.setAttribute("stroke-width", String(width));
-    return p;
-  };
-
-  const animate = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // The drawing and the legend share one height, 1:1 with the page, so each label sits on its
+  // channel's mouth; it grows with the channel count so labels never overlap (24px apart).
   const top = 8;
-  const span = H - top * 2;
-  const step = channels.length > 1 ? span / (channels.length - 1) : 0;
+  const W = 600;
+  const H = Math.max(108, top * 2 + 24 * (channels.length - 1));
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.style.height = legend.style.height = `${H}px`;
+  const mid = H / 2;
+  const trunkWidth = Math.max(4, Math.min(34, 8 + total * 0.6));
+  const step = channels.length > 1 ? (H - top * 2) / (channels.length - 1) : 0;
 
-  // The source is a soft-cornered band, not a capsule: water entering from the left edge.
-  const trunk = document.createElementNS(ns, "rect");
-  trunk.setAttribute("class", "trunk");
-  trunk.setAttribute("x", "0");
-  trunk.setAttribute("y", String(mid - trunkWidth / 2));
-  trunk.setAttribute("width", String(trunkEnd));
-  trunk.setAttribute("height", String(trunkWidth));
-  trunk.setAttribute("rx", "3");
-  svg.append(trunk);
+  // One body of water: every channel is a filled ribbon that starts as its own slice of the
+  // source stream and peels away to its label. Nothing is butted against anything, so there
+  // is no seam or cut anywhere; the source is simply where the ribbons still overlap.
+  let F = 0;
+  const bands = channels.map((c, i) => {
+    const f = c.n / total;
+    const band = { id: c.outcome.id, n: c.n, f, F, yEnd: channels.length > 1 ? top + step * i : mid,
+                   failed: c.outcome.id === "failed" };
+    F += f;
+    return band;
+  });
+  const geom = { W, H, mid, trunkWidth, split: 210, mouth: W - 6 };
 
-  // Each channel leaves its own slice of the trunk, sized by its share, like a braided delta.
-  let offset = mid - trunkWidth / 2;
-  channels.forEach((c, i) => {
-    const y = channels.length > 1 ? top + step * i : mid;
-    const share = (c.n / total) * trunkWidth;
-    const width = Math.max(2, share);
-    const y0 = offset + share / 2;
-    offset += share;
-    const failed = c.outcome.id === "failed";
-    const ch = path(
-      `M${trunkEnd - 1} ${y0} C${trunkEnd + 120} ${y0} ${trunkEnd + 150} ${y} ${mouth} ${y}`,
-      `channel${failed ? " is-failed" : ""}`,
-      width,
-    );
-    if (!failed) ch.style.stroke = `var(--outcome-${c.outcome.id})`;
-    ch.dataset.outcome = c.outcome.id;
-    svg.append(ch);
-    if (animate && !failed) {
-      const len = ch.getTotalLength();
-      ch.style.strokeDasharray = `${len}`;
-      ch.style.setProperty("--len", `${len}`);
-      ch.style.animationDelay = `${120 + i * 70}ms`;
-      ch.classList.add("draw");
-    }
+  const ns = "http://www.w3.org/2000/svg";
+  const make = (tag, attrs = {}) => {
+    const node = document.createElementNS(ns, tag);
+    Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, v));
+    return node;
+  };
+  const defs = make("defs");
+  // Each ribbon is source-coloured at the head and takes its own colour as it leaves.
+  bands.forEach((b) => {
+    const g = make("linearGradient", { id: `band-${b.id}`, gradientUnits: "userSpaceOnUse", x1: "0", y1: "0", x2: String(geom.split + 60), y2: "0" });
+    [["0.55", "var(--outcome-replies)"], ["1", b.failed ? "var(--coral)" : `var(--outcome-${b.id})`]].forEach(([at, color]) => {
+      const stop = make("stop", { offset: at });
+      stop.style.stopColor = color;  // var() only resolves in style, not in attributes
+      g.append(stop);
+    });
+    defs.append(g);
+  });
+  // The swell: a soft light crest that rolls downstream through every ribbon (moved by app.js).
+  const swell = make("linearGradient", { id: "delta-swell", gradientUnits: "userSpaceOnUse", x1: "0", y1: "0", x2: "170", y2: "0", spreadMethod: "repeat" });
+  [["0", 0], ["0.36", 0], ["0.5", 0.42], ["0.64", 0], ["1", 0]].forEach(([at, a]) => {
+    const stop = make("stop", { offset: at });
+    stop.style.stopColor = "var(--ramp-10)";
+    stop.style.stopOpacity = String(a);
+    swell.append(stop);
+  });
+  defs.append(swell);
+  svg.append(defs);
 
-    const item = el("li", { style: `top:${(y / H) * 100}%;--dot: var(--outcome-${c.outcome.id})` }, el("button", {
+  bands.forEach((b, i) => {
+    const d = deltaWaves.bandPath(b, geom, 0, 0);
+    const group = make("g", { class: `channel${b.failed ? " is-failed" : ""}` });
+    group.dataset.outcome = b.id;
+    group.dataset.n = String(b.n);
+    group.append(make("path", { class: "band", d, fill: `url(#band-${b.id})` }),
+                 make("path", { class: "swell", d, fill: "url(#delta-swell)" }));
+    svg.append(group);
+
+    const failed = b.failed;
+    const c = channels[i];
+    const item = el("li", { style: `top:${(b.yEnd / H) * 100}%;--dot: var(--outcome-${c.outcome.id})` }, el("button", {
       type: "button",
       class: failed ? "is-failed" : null,
       "aria-label": `${c.n} ${c.outcome.label}. Show these conversations.`,
@@ -564,7 +663,131 @@ function renderDelta() {
     }, [el("span", { class: "n", text: String(c.n) }), el("span", { text: c.outcome.label })]));
     legend.append(item);
   });
+
+  // The water pours in from the source the first time the delta appears.
+  if (!svg.dataset.drawn && !reduceMotion.matches) {
+    svg.dataset.drawn = "1";
+    svg.classList.remove("is-pouring");
+    void svg.getBoundingClientRect();
+    svg.classList.add("is-pouring");
+  }
+  deltaWaves.setup(svg, bands, geom);
 }
+
+/* Waves through the delta: each ribbon's edges ripple downstream and a soft light crest rolls
+   from the source to the mouths; a new request sends a brighter swell down its own channel.
+   Plain path updates (a few ribbons, ~100 points each), only while the Overview is on screen
+   and motion is allowed; with reduced motion the ribbons are drawn once and stay still. */
+const deltaWaves = (() => {
+  let svg = null;
+  let bands = [];
+  let geom = null;
+  let raf = 0;
+  const PULSE_MS = 1800;
+  const smooth = (u) => { const v = Math.min(1, Math.max(0, u)); return v * v * (3 - 2 * v); };
+
+  // Width of the source stream at x: a round head that widens into the full stream.
+  function trunkAt(x, g) {
+    const head = Math.max(3, g.trunkWidth * 0.55);
+    const r = head / 2;
+    if (x <= r) return 2 * Math.sqrt(Math.max(0, r * r - (r - x) * (r - x)));
+    return head + (g.trunkWidth - head) * smooth((x - r) / (g.split * 0.85 - r));
+  }
+
+  // One ribbon's outline at time t; `wave` scales the ripple (0 = still).
+  function bandPath(b, g, t, wave) {
+    const topEdge = [];
+    const bottomEdge = [];
+    const c0 = g.mid - g.trunkWidth / 2 + (b.F + b.f / 2) * g.trunkWidth;
+    const h0 = (b.f * g.trunkWidth) / 2;
+    const hEnd = Math.max(1.4, h0);
+    const xs = [];
+    for (let x = 0; x < 6; x += 1) xs.push(x);
+    for (let x = 6; x < g.mouth; x += 6) xs.push(x);
+    xs.push(g.mouth);
+    const phase = b.yEnd * 0.09;
+    let last = null;
+    xs.forEach((x) => {
+      let top;
+      let bottom;
+      if (x <= g.split) {
+        const T = trunkAt(x, g);
+        top = g.mid - T / 2 + b.F * T;
+        bottom = top + b.f * T;
+      } else {
+        const u = (x - g.split) / (g.mouth - g.split);
+        const env = smooth((x - g.split) / 140) * wave;
+        const centre = c0 + (b.yEnd - c0) * smooth(u)
+          + env * 1.0 * Math.sin(x * 0.026 - t * 1.4 + phase);
+        const half = (h0 + (hEnd - h0) * u) * (1 + env * 0.08 * Math.sin(x * 0.03 - t * 1.9 + phase));
+        top = centre - half;
+        bottom = centre + half;
+      }
+      // A hair of overlap so neighbouring slices of the source never show a seam.
+      topEdge.push([x, top - 0.3]);
+      bottomEdge.push([x, bottom + 0.3]);
+      last = { top: top - 0.3, bottom: bottom + 0.3 };
+    });
+    // Rounded mouth: the ribbon ends in a cap, not a cut.
+    const r = Math.max(0.5, (last.bottom - last.top) / 2);
+    const end = bottomEdge[bottomEdge.length - 1];
+    return `M${pt(topEdge[0])}${curve(topEdge)} A${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${pt(end)}${curve(bottomEdge.reverse())} Z`;
+  }
+
+  // Smooth curve through sampled points (each sample is a control point, midpoints are on the
+  // curve), so the edges have no facets.
+  const pt = (p) => `${p[0].toFixed(1)} ${p[1].toFixed(2)}`;
+  function curve(points) {
+    let d = "";
+    for (let i = 1; i < points.length - 1; i++) {
+      const p = points[i];
+      const q = points[i + 1];
+      d += ` Q${pt(p)} ${pt([(p[0] + q[0]) / 2, (p[1] + q[1]) / 2])}`;
+    }
+    return `${d} L${pt(points[points.length - 1])}`;
+  }
+
+  function setup(svgEl, bandList, g) {
+    svg = svgEl;
+    bands = bandList.map((b) => ({ ...b, group: $(`.channel[data-outcome="${b.id}"]`, svg), boost: 0 }));
+    geom = g;
+    start();
+  }
+
+  function pulse(id) {
+    const band = bands.find((b) => b.id === id);
+    if (band) band.born = performance.now();
+    start();
+  }
+
+  function visible() {
+    return svg && !document.hidden && !reduceMotion.matches && $("#overview-page")?.classList.contains("active");
+  }
+
+  function frame(now) {
+    raf = 0;
+    if (!visible()) return;
+    const t = now / 1000;
+    $("#delta-swell", svg)?.setAttribute("gradientTransform", `translate(${(t * 38) % 170} 0)`);
+    bands.forEach((b) => {
+      if (!b.group?.isConnected) return;
+      const d = bandPath(b, geom, t, 1);
+      b.group.querySelectorAll("path").forEach((p) => p.setAttribute("d", d));
+      // A new request: its channel's crest brightens, then settles.
+      const age = b.born ? (now - b.born) / PULSE_MS : 1;
+      b.group.querySelector(".swell").style.opacity = String(0.55 + 0.45 * Math.max(0, 1 - age));
+    });
+    raf = requestAnimationFrame(frame);
+  }
+
+  function start() {
+    if (!raf && visible()) raf = requestAnimationFrame(frame);
+  }
+
+  document.addEventListener("visibilitychange", start);
+  reduceMotion.addEventListener?.("change", start);
+  return { setup, pulse, start, bandPath };
+})();
 
 function highlightChannel(id) {
   $$("#delta-svg .channel").forEach((p) => p.classList.toggle("is-dimmed", Boolean(id) && p.dataset.outcome !== id));
@@ -600,13 +823,25 @@ function renderLatest() {
   const size = query.length <= 40 ? "is-short" : query.length <= 90 ? "is-medium" : "is-long";
   const heard = heardLine(turn);
   box.replaceChildren(
-    el("time", { class: "latest-when", datetime: turn.timestamp || "", text: formatWhen(turn.timestamp) }),
-    el("q", { class: `latest-query ${size}`, text: query, title: query }),
-    ...(heard ? [heard] : []),
-    el("p", { class: "latest-reply", text: turn.spoken_response || "(no reply)" }),
-    el("p", { class: "latest-meta" }, outcomeParts(turn)),
-    ...(showHint ? [el("p", { class: "fix-hint latest-hint" }, richText(turn.failure_hint))] : []),
+    el("div", { class: "bubble bubble-you" }, [
+      el("time", { class: "latest-when", datetime: turn.timestamp || "", text: formatWhen(turn.timestamp) }),
+      el("q", { class: `latest-query ${size}`, text: query, title: query }),
+      heard,
+    ]),
+    el("div", { class: "bubble bubble-jarvis" }, [
+      el("p", { class: "latest-reply", text: turn.spoken_response || "(no reply)" }),
+      el("p", { class: "latest-meta" }, outcomeParts(turn)),
+      showHint ? el("p", { class: "fix-hint latest-hint" }, richText(turn.failure_hint)) : null,
+    ]),
   );
+  // A new exchange pours in (your words, then the reply); a refresh of the same one doesn't move.
+  const key = turn.record_id || turn.timestamp || query;
+  if (state.latestKey !== key) {
+    if (state.latestKey !== undefined) setTimeout(() => deltaWaves.pulse(outcomeOf(turn).id), 160);
+    if (state.latestKey !== undefined && state.latestKey !== "pending") flowIn([...box.children], { stagger: 140 });
+    else if (state.latestKey === "pending") flowIn([box.lastElementChild]);
+    state.latestKey = key;
+  }
 }
 
 /* ---------- Typed requests ---------- */
@@ -739,7 +974,8 @@ function renderRecentRows() {
   }
   list.replaceChildren(...earlier.map((t) => {
     const failed = t.status === "failed";
-    return el("li", { class: `row${failed ? " is-failed" : ""}` }, [
+    return el("li", { class: `row${failed ? " is-failed" : ""}`, title: `${failed ? "Failed" : outcomeOf(t).label}`,
+      style: `--dot: var(--outcome-${failed ? "failed" : outcomeOf(t).id})` }, [
       el("time", { class: "row-when", datetime: t.timestamp || "", text: formatWhen(t.timestamp) }),
       el("span", { class: "row-query", text: t.user_query || "(nothing heard)" }),
       el("span", { class: "row-reply", text: t.spoken_response || "" }),
@@ -1343,7 +1579,7 @@ async function loadSettings() {
   const tts = $("#setting-tts-provider");
   if (tts && res.tts_providers) fillSelect(tts, res.tts_providers.map((p) => ({ value: p.id, label: providerBaseName(p) })), s.tts_provider);
 
-  populateVoiceSelect(res.available_voices || [], s.tts_voice);
+  populateVoiceSelect(res.available_voices || [], s.tts_voice, res.voice_names);
 
   const claudeRoute = $("#setting-claude-route-model");
   if (claudeRoute && document.activeElement !== claudeRoute) claudeRoute.value = s.claude_code_model || "haiku";
@@ -1372,11 +1608,12 @@ async function loadSettings() {
   });
 }
 
-function populateVoiceSelect(voices, activeVoice) {
+function populateVoiceSelect(voices, activeVoice, names = {}) {
   const select = $("#setting-voice-select");
   if (!select) return;
   const list = voices.length ? voices : [activeVoice || "default"];
-  fillSelect(select, list.map((v) => ({ value: v, label: v })), list.includes(activeVoice) ? activeVoice : list[0]);
+  // Show a voice's name when the provider has one (ElevenLabs IDs are opaque strings).
+  fillSelect(select, list.map((v) => ({ value: v, label: (names && names[v]) || v })), list.includes(activeVoice) ? activeVoice : list[0]);
 }
 
 async function saveSettings(extra = {}) {
@@ -1491,7 +1728,7 @@ function initSettings() {
 
   $("#setting-tts-provider")?.addEventListener("change", async (e) => {
     const res = await ipc("get_voices_for_provider", { tts_provider: e.target.value });
-    if (res.success) populateVoiceSelect(res.voices || [], null);
+    if (res.success) populateVoiceSelect(res.voices || [], null, res.voice_names);
     saveSettings();
   });
 
@@ -1643,11 +1880,17 @@ function showPendingExchange(text, alternatives) {
   const pending = { heard_alternatives: alternatives || [] };
   const heard = heardLine(pending);
   box.replaceChildren(
-    el("div", { class: "latest-when" }, [el("span", { text: "Just now" })]),
-    el("q", { class: "latest-query", text }),
-    ...(heard ? [heard] : []),
-    el("p", { class: "latest-reply muted", text: "Thinking…" }),
+    el("div", { class: "bubble bubble-you" }, [
+      el("span", { class: "latest-when", text: "Just now" }),
+      el("q", { class: "latest-query", text }),
+      heard,
+    ]),
+    el("div", { class: "bubble bubble-jarvis is-pending", "aria-label": "Jarvis is thinking" }, [
+      el("span", { class: "droplets", "aria-hidden": "true" }, [el("i"), el("i"), el("i")]),
+    ]),
   );
+  state.latestKey = "pending";
+  flowIn([...box.children], { stagger: 160 });
 }
 
 /* Called by the daemon (DashboardWindow.push_event) as the voice loop runs. */
@@ -1686,6 +1929,7 @@ function safely(name, fn) {
 
 function boot() {
   safely("navigation", initNavigation);
+  safely("liquid motion", initLiquid);
   safely("keybind recorder", initKeybindRecorder);
   safely("transcripts", initTranscripts);
   safely("background tasks", loadTasks);

@@ -29,10 +29,11 @@ from PySide6.QtWebChannel import QWebChannel
 # applications from specifying absolute screen coordinates (move/setGeometry), forcing windows to center.
 # Setting QT_QPA_PLATFORM=xcb gives Qt full authority over absolute screen positioning (x=2300, y=1350).
 os.environ["QT_QPA_PLATFORM"] = "xcb"
+# The GPU draws the pages (tested 2026-11-17 on NVIDIA + KWin/XWayland: the see-through overlays
+# keep their transparent corners). Software rendering made every animation stutter.
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
     "--no-sandbox "
-    "--disable-gpu "
-    "--disable-software-rasterizer "
+    "--ignore-gpu-blocklist "
     "--disable-dev-shm-usage "
     "--disable-webrtc "
     "--disable-features=WebRtcHideLocalIpsWithMdns,MediaStream,WebRtc "
@@ -239,6 +240,10 @@ class EdgePanelWindow(QMainWindow):
         self.raise_()
 
 
+# The pill window: room around the blob for its edge to swell when you speak.
+PILL_W, PILL_H = 560, 100
+
+
 class HUDWindow(QMainWindow):
     def __init__(self, bridge: Optional[TriggerBridge] = None):
         super().__init__()
@@ -248,7 +253,7 @@ class HUDWindow(QMainWindow):
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WA_AlwaysStackOnTop, True)
-        self.setFixedSize(520, 68)
+        self.setFixedSize(PILL_W, PILL_H)
 
         self.web_view = QWebEngineView(self)
         self.web_view.page().setBackgroundColor(Qt.transparent)
@@ -271,8 +276,8 @@ class HUDWindow(QMainWindow):
         from daemon.overlay_layout import pill_position
         if QApplication.primaryScreen():
             screen, insets = overlay_screen()
-            x, y = pill_position(screen, insets, 520, 68)
-            self.setGeometry(x, y, 520, 68)
+            x, y = pill_position(screen, insets, PILL_W, PILL_H)
+            self.setGeometry(x, y, PILL_W, PILL_H)
             self.move(x, y)
 
     def _ensure_on_top(self):
@@ -446,12 +451,14 @@ class JarvisApplication:
                 "stt_providers": self.provider_factory.get_available_stt_providers(),
                 "tts_providers": self.provider_factory.get_available_tts_providers(),
                 "llm_providers": self.provider_factory.get_available_llm_providers(),
-                "available_voices": available_voices
+                "available_voices": available_voices,
+                "voice_names": self.provider_factory.voice_names(self.provider_factory.settings.get("tts_provider", "kokoro")),
             }
         elif action == "get_voices_for_provider":
             tts_id = params.get("tts_provider", self.provider_factory.settings.get("tts_provider", "kokoro"))
             voices = self.provider_factory.get_voices_for_provider(tts_id)
-            return {"success": True, "tts_provider": tts_id, "voices": voices}
+            return {"success": True, "tts_provider": tts_id, "voices": voices,
+                    "voice_names": self.provider_factory.voice_names(tts_id)}
         elif action == "update_provider_config":
             self.provider_factory.update_settings(params)
             self.orchestrator.set_llm_provider(self.provider_factory.llm_provider)
@@ -852,6 +859,13 @@ class JarvisApplication:
             self.recorder.start_recording()
         except Exception as e:
             print(f"[Jarvis Main Error] Audio recording error: {e}", flush=True)
+
+        # The pill ripples with your voice: send the microphone level about 30 times a second.
+        def _stream_level():
+            while self.voice_state == "listening" and self.recorder.is_recording:
+                self.bridge.update_hud_signal.emit("AUDIO_LEVEL", f"{self.recorder.level:.3f}")
+                time.sleep(0.033)
+        threading.Thread(target=_stream_level, daemon=True, name="JarvisMicLevel").start()
 
     def _handle_request(self, user_text: str, speak_output: bool = True):
         """Run one request (spoken or typed) through the agent, then refresh the dashboard and learn from it."""

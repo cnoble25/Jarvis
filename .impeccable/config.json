@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "low-contrast",
+        "value": "*",
+        "files": [
+          "ui/hud.html"
+        ],
+        "createdAt": "2026-11-18T04:14:23.931Z",
+        "reason": "The pill's opaque background (#0a1c28) is painted on a canvas the detector can't read; text is #e8f2f4 on it, about 15:1."
+      }
+    ]
+  }
+}

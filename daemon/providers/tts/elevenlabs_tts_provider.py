@@ -30,6 +30,8 @@ KNOWN_VOICES = {
 @ProviderRegistry.register_tts("elevenlabs_tts")
 @ProviderRegistry.register_tts("ElevenLabs")
 class ElevenLabsTTSProvider(AbstractBaseTTSEngine):
+    VOICE_NAMES = KNOWN_VOICES  # what Settings shows instead of the raw voice ID
+
     def __init__(self, voice: str = "onwK4e9ZLuTAKqWW03F9", api_key: Optional[str] = None, model: Optional[str] = None):
         super().__init__()
         self.voice = voice

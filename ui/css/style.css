@@ -1,19 +1,13 @@
 /* ==========================================================================
-   Jarvis dashboard: River Delta
+   Jarvis dashboard: River Delta, liquid
    Deep slate water, silt-cyan channels, sage banks, ice-white type.
    One cold tonal ramp supplies every neutral; coral is reserved for what needs you.
+   Chrome is water too: capsules that pool, swell and flow on real events.
    ========================================================================== */
 
 @font-face {
   font-family: "Atkinson Hyperlegible";
   src: url("../fonts/atkinson-hyperlegible-400.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "JetBrains Mono";
-  src: url("../fonts/jetbrains-mono-400.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -47,7 +41,7 @@
   --control: var(--ramp-4);
   --hairline: var(--ramp-5);
   --edge: var(--ramp-6);
-  --control-edge: #4a7686; /* 3.3:1 on input and page grounds: WCAG 1.4.11 */
+  --control-edge: #517f8f; /* field rings: 3.95:1 on the field, 3.3:1 on ramp-3 pools (WCAG 1.4.11) */
   --text: var(--ramp-10);
   --text-2: var(--ramp-9);
   --text-3: var(--ramp-8);
@@ -59,6 +53,9 @@
   --sage-deep: #6f9585;
   --on-silt: #062029;
   --silt-hover: #9adde3;
+  /* Water lit by the channel: a capsule that belongs to you or to a live state. */
+  --silt-pool: color-mix(in oklab, var(--silt) 13%, var(--ramp-3));
+  --silt-pool-strong: color-mix(in oklab, var(--silt) 22%, var(--ramp-3));
 
   /* Outcomes: each keeps its colour in the delta, rows and conversations. Silt into sage. */
   --outcome-replies: #7fd1d9;
@@ -78,9 +75,9 @@
   --amber-ground: #2c2a26;
   --amber-edge: #6e5c34;
 
-  /* Type: one face, one ladder */
+  /* Type: one face, one ladder. Code is shown in the same face: this is not a console. */
   --font: "Atkinson Hyperlegible", "Noto Sans", "DejaVu Sans", system-ui, sans-serif;
-  --font-code: "JetBrains Mono", "DejaVu Sans Mono", ui-monospace, monospace;
+  --font-code: var(--font);
   --t-meta: 0.8125rem;   /* 13 */
   --t-body: 0.9375rem;   /* 15 */
   --t-lead: 1.1875rem;   /* 19: 1.27x body */
@@ -96,10 +93,24 @@
   --s-6: 32px;
   --s-7: 48px;
 
-  --radius: 8px;
-  --radius-small: 5px;
+  /* Liquid shapes: everything is a capsule or a pool. */
+  --radius: 14px;          /* controls, fields */
+  --radius-small: 10px;    /* keys, small wells */
+  --radius-pool: 22px;     /* capsules that hold content */
+  --radius-pill: 999px;
+
+  /* Water on water: depth is tone plus a soft cast shadow that sits below. */
+  --shadow-pool: 0 10px 28px -14px rgba(2, 10, 16, 0.75), 0 2px 6px -3px rgba(2, 10, 16, 0.5);
+  --shadow-float: 0 18px 40px -16px rgba(2, 10, 16, 0.85), 0 4px 12px -6px rgba(2, 10, 16, 0.6);
+
+  /* Motion: arrivals decelerate like water settling; the flowing indicator springs. */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --sidebar: 200px;
+  --ease-in: cubic-bezier(0.55, 0, 0.75, 0.2);
+  --ease-flow: linear(0, 0.012 1.4%, 0.054 3%, 0.21 6.6%, 0.43 10.6%, 0.63 14.8%, 0.79 19.4%,
+                      0.9 24.3%, 0.97 30%, 1.012 36.4%, 1.026 43.5%, 1.02 52%, 1.006 64%, 1);
+  --t-quick: 160ms;
+  --t-state: 260ms;
+  --t-arrive: 460ms;
 }
 
 /* ---------- Base ---------- */
@@ -117,10 +128,13 @@
 html {
   color-scheme: dark;
   -webkit-text-size-adjust: 100%;
+  interpolate-size: allow-keywords; /* disclosures pour open to their natural height */
 }
 
 body {
+  position: relative;
   display: flex;
+  flex-direction: column;
   height: 100vh;
   overflow: hidden;
   background: var(--ground);
@@ -130,11 +144,57 @@ body {
   line-height: 1.55;
   letter-spacing: 0.005em;
   -webkit-font-smoothing: antialiased;
+  isolation: isolate;
+}
+
+/* The current: two faint channels of lit water drifting under the page, slow enough to read as
+   stillness until you look for it. Paused while the window is hidden; gone with reduced motion. */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  inset: -30%;
+  pointer-events: none;
+  will-change: transform;
+}
+
+body::before {
+  background:
+    radial-gradient(38% 30% at 22% 28%, color-mix(in oklab, var(--silt) 9%, transparent), transparent 70%),
+    radial-gradient(30% 26% at 78% 72%, color-mix(in oklab, var(--sage) 7%, transparent), transparent 70%);
+  animation: current-a 70s ease-in-out infinite alternate;
+}
+
+body::after {
+  background:
+    radial-gradient(34% 24% at 64% 22%, color-mix(in oklab, var(--silt-deep) 7%, transparent), transparent 70%),
+    radial-gradient(26% 30% at 30% 80%, color-mix(in oklab, var(--silt) 5%, transparent), transparent 70%);
+  animation: current-b 95s ease-in-out infinite alternate;
+}
+
+@keyframes current-a {
+  from { transform: translate3d(-4%, -2%, 0) rotate(0deg) scale(1); }
+  to   { transform: translate3d(5%, 4%, 0) rotate(8deg) scale(1.08); }
+}
+
+@keyframes current-b {
+  from { transform: translate3d(4%, 3%, 0) rotate(0deg) scale(1.05); }
+  to   { transform: translate3d(-5%, -4%, 0) rotate(-10deg) scale(0.96); }
+}
+
+body.window-hidden::before,
+body.window-hidden::after {
+  animation-play-state: paused;
 }
 
 ::selection {
   background: var(--silt);
   color: var(--on-silt);
+}
+
+input, textarea {
+  caret-color: var(--silt);
 }
 
 h1, h2, h3 {
@@ -146,13 +206,17 @@ p {
   text-wrap: pretty;
 }
 
-code, kbd, .input-code {
-  font-family: var(--font-code);
-  font-size: 0.92em;
-}
-
-code {
-  color: var(--text-2);
+/* Commands, paths and IDs: the same face, set in a small pool of deeper water. */
+code, kbd {
+  font-family: var(--font);
+  font-size: 0.94em;
+  padding: 1px 7px;
+  border-radius: 8px;
+  background: var(--ramp-1);
+  color: var(--text);
+  overflow-wrap: anywhere;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 button, input, select, textarea {
@@ -163,7 +227,7 @@ button, input, select, textarea {
 
 :focus-visible {
   outline: 2px solid var(--silt);
-  outline-offset: 2px;
+  outline-offset: 3px;
 }
 
 [hidden] {
@@ -203,10 +267,10 @@ button, input, select, textarea {
   left: var(--s-3);
   top: -60px;
   z-index: 10;
-  padding: var(--s-2) var(--s-3);
+  padding: var(--s-2) var(--s-4);
   background: var(--silt);
   color: var(--on-silt);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius-pill);
   font-weight: 700;
   text-decoration: none;
 }
@@ -219,10 +283,10 @@ button, input, select, textarea {
   color: var(--text-3);
 }
 
-/* Scrollbars belong to the palette too. */
+/* Scrollbars belong to the palette too: a thin current along the edge. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--edge) transparent;
+  scrollbar-color: var(--ramp-6) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -231,78 +295,183 @@ button, input, select, textarea {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--hairline);
-  border: 3px solid var(--ground);
+  background: var(--ramp-5);
+  border: 3px solid transparent;
+  background-clip: padding-box;
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--edge);
+  background-color: var(--ramp-6);
 }
 
-/* ---------- Sidebar ---------- */
+/* ---------- Top capsule (replaces the sidebar rail) ---------- */
 
-.sidebar {
-  width: var(--sidebar);
+.topbar {
+  position: relative;
+  z-index: 5;
   flex-shrink: 0;
   display: flex;
-  flex-direction: column;
-  gap: var(--s-5);
-  padding: var(--s-5) var(--s-3) var(--s-4);
-  background: var(--rail);
-  border-right: 1px solid var(--ramp-3);
+  align-items: center;
+  gap: var(--s-4);
+  margin: var(--s-3) var(--s-4) 0;
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-4);
+  border-radius: var(--radius-pill);
+  background: var(--ramp-1);
+  box-shadow: var(--shadow-float), inset 0 1px 0 color-mix(in oklab, var(--ramp-10) 5%, transparent);
 }
 
 .brand {
   display: flex;
-  flex-direction: column;
-  padding: 0 var(--s-2);
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
 }
 
 .brand-name {
   font-size: var(--t-lead);
   font-weight: 700;
-  letter-spacing: -0.005em;
+  letter-spacing: -0.01em;
 }
 
-.brand-sub {
+.brand-state {
   font-size: var(--t-meta);
-  color: var(--text-3);
+  color: var(--text-2);
+  white-space: nowrap;
 }
 
+/* The state droplet: a small pool that breathes when idle, ripples while listening or speaking,
+   swirls while thinking, and turns coral when something needs you. */
+.state-mark {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--sage);
+  transition: background-color var(--t-state) var(--ease-out), transform var(--t-state) var(--ease-flow);
+}
+
+.state-mark::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  color: var(--sage);
+  opacity: 0;
+}
+
+body[data-voice-state="idle"]:not(.is-blocked):not(.is-disconnected) .state-mark {
+  animation: droplet-breathe 4.8s ease-in-out infinite;
+}
+
+body[data-voice-state="listening"] .state-mark,
+body[data-voice-state="speaking"] .state-mark {
+  background: var(--silt);
+  transform: scale(1.15);
+}
+
+body[data-voice-state="listening"] .state-mark::after,
+body[data-voice-state="speaking"] .state-mark::after {
+  color: var(--silt);
+  animation: droplet-ripple 1.4s var(--ease-out) infinite;
+}
+
+body[data-voice-state="thinking"] .state-mark {
+  background: conic-gradient(from 0deg, var(--silt), var(--silt-deep) 40%, var(--ramp-6) 60%, var(--silt));
+  animation: droplet-swirl 1.6s linear infinite;
+}
+
+body.is-disconnected .state-mark,
+body.is-blocked .state-mark {
+  background: var(--coral);
+  animation: none;
+}
+
+@keyframes droplet-breathe {
+  50% { transform: scale(0.82); }
+}
+
+@keyframes droplet-ripple {
+  from { transform: scale(0.7); opacity: 0.8; }
+  to   { transform: scale(1.9); opacity: 0; }
+}
+
+@keyframes droplet-swirl {
+  to { transform: rotate(1turn); }
+}
+
+body.is-blocked .status-label,
+body.is-blocked .brand-state {
+  color: var(--coral-text);
+}
+
+/* Destinations: one pill; a liquid indicator flows to the chosen one (positioned by app.js). */
 .nav {
+  position: relative;
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 2px;
+  margin-left: auto;
+  padding: var(--s-1);
+  border-radius: var(--radius-pill);
+  background: var(--ramp-0);
+  box-shadow: inset 0 1px 3px rgba(2, 10, 16, 0.6);
+}
+
+.nav-flow {
+  position: absolute;
+  top: var(--s-1);
+  bottom: var(--s-1);
+  left: 0;
+  width: var(--flow-w, 0px);
+  transform: translateX(var(--flow-x, 0px));
+  border-radius: var(--radius-pill);
+  background: linear-gradient(180deg, var(--silt-pool-strong), var(--silt-pool));
+  box-shadow: 0 6px 16px -10px color-mix(in oklab, var(--silt) 60%, transparent),
+              inset 0 1px 0 color-mix(in oklab, var(--silt) 30%, transparent);
+  pointer-events: none;
+}
+
+.nav-flow.is-ready {
+  transition: transform 520ms var(--ease-flow), width 520ms var(--ease-flow);
 }
 
 .nav-item {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
-  gap: var(--s-3);
-  width: 100%;
+  gap: var(--s-2);
   min-height: 36px;
-  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-3);
+  padding: 0 var(--s-3);
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--text-2);
-  text-align: left;
+  white-space: nowrap;
   cursor: pointer;
-  transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out);
+  transition: color var(--t-quick) var(--ease-out);
 }
 
-.nav-item span {
-  flex: 1;
+.nav-item .icon {
+  transition: stroke var(--t-quick) var(--ease-out), transform var(--t-state) var(--ease-flow);
 }
 
 .nav-item:hover {
-  background: var(--raised);
   color: var(--text);
 }
 
+.nav-item:hover .icon {
+  transform: translateY(-1px);
+}
+
+.nav-item:active .icon {
+  transform: scale(0.88);
+}
+
 .nav-item.active {
-  background: var(--control);
   color: var(--text);
   font-weight: 700;
 }
@@ -311,59 +480,33 @@ button, input, select, textarea {
   stroke: var(--silt);
 }
 
-.sidebar-foot {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
-  padding: var(--s-3) var(--s-2) 0;
-  border-top: 1px solid var(--ramp-3);
-  font-size: var(--t-meta);
-}
-
-.sidebar-state {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  color: var(--text-2);
-}
-
-.state-mark {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--sage);
-}
-
-body[data-voice-state="listening"] .state-mark,
-body[data-voice-state="speaking"] .state-mark {
-  background: var(--silt);
-}
-
-body[data-voice-state="thinking"] .state-mark {
-  background: transparent;
-  border: 2px solid var(--silt);
-}
-
-body.is-disconnected .state-mark,
-body.is-blocked .state-mark {
-  background: var(--coral);
-}
-
-body.is-blocked .status-label,
-body.is-blocked .sidebar-state {
-  color: var(--coral-text);
+/* The label: always shown when there's room; at narrow widths only the chosen one opens. */
+.nav-label {
+  display: inline-block;
+  overflow: hidden;
+  max-width: 14ch;
+  transition: max-width var(--t-arrive) var(--ease-out), opacity var(--t-state) var(--ease-out);
 }
 
 .needs-you {
+  flex-shrink: 0;
+  max-width: 28ch;
+  padding: var(--s-1) var(--s-3);
+  border-radius: var(--radius-pill);
+  background: var(--coral-ground);
   color: var(--coral-text);
+  font-size: var(--t-meta);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ---------- Main + pages ---------- */
 
 .main-content {
   flex: 1;
-  min-width: 0;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--s-5) var(--s-6) var(--s-7);
   scroll-padding-top: var(--s-5);
@@ -372,6 +515,7 @@ body.is-blocked .sidebar-state {
 .page-view {
   display: none;
   max-width: 880px;
+  margin: 0 auto;
   flex-direction: column;
   gap: var(--s-6);
 }
@@ -406,11 +550,7 @@ body.is-blocked .sidebar-state {
   align-items: baseline;
   justify-content: space-between;
   gap: var(--s-4);
-  margin-bottom: var(--s-2);
-}
-
-.recent .section-head {
-  margin-bottom: 0;
+  margin-bottom: var(--s-3);
 }
 
 .section-title {
@@ -428,12 +568,12 @@ section > .section-title {
 
 .count {
   font-weight: 400;
-  color: var(--text-3);
+  color: var(--text-2);
 }
 
 .help {
   font-size: var(--t-meta);
-  color: var(--text-3);
+  color: var(--text-2);
   max-width: 68ch;
 }
 
@@ -443,10 +583,10 @@ section > .section-title {
   gap: var(--s-3);
   min-height: 28px;
   font-size: var(--t-meta);
-  color: var(--text-3);
+  color: var(--text-2);
 }
 
-/* ---------- Keycaps ---------- */
+/* ---------- Keycaps: soft keys, still physical ---------- */
 
 .keycaps {
   display: inline-flex;
@@ -457,12 +597,11 @@ section > .section-title {
 
 .key {
   display: inline-block;
-  min-width: 26px;
-  padding: 1px var(--s-2);
-  background: var(--control);
-  border: 1px solid var(--edge);
+  min-width: 28px;
+  padding: 2px var(--s-3);
+  background: linear-gradient(180deg, var(--ramp-5), var(--ramp-4));
   border-radius: var(--radius-small);
-  box-shadow: 0 1px 0 var(--ramp-0);
+  box-shadow: 0 2px 0 var(--ramp-0), 0 6px 12px -8px rgba(2, 10, 16, 0.8);
   font-family: var(--font);
   font-size: var(--t-meta);
   font-weight: 700;
@@ -472,14 +611,14 @@ section > .section-title {
 }
 
 .key-plus {
-  color: var(--text-3);
+  color: var(--text-2);
   font-size: var(--t-meta);
 }
 
-/* ---------- Status line (Overview top) ---------- */
+/* ---------- Status (Overview top) ---------- */
 
 #overview-page {
-  gap: 20px;
+  gap: var(--s-5);
 }
 
 /* Holding the shortcut can't help while the model is down. */
@@ -493,7 +632,8 @@ body:not(.is-blocked) .when-blocked {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: var(--s-4);
+  gap: var(--s-5);
+  flex-wrap: wrap;
 }
 
 .status-main {
@@ -505,6 +645,7 @@ body:not(.is-blocked) .when-blocked {
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: -0.015em;
+  transition: color var(--t-state) var(--ease-out);
 }
 
 body[data-voice-state="listening"] .status-label,
@@ -513,27 +654,84 @@ body[data-voice-state="speaking"] .status-label {
 }
 
 .status-detail {
-  margin-top: var(--s-1);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
   color: var(--text-2);
 }
 
+/* The model you think with: a capsule you can turn, with where it runs written inside it. */
 .status-model {
+  flex: 0 1 320px;
+  min-width: 220px;
   display: flex;
   flex-direction: column;
   gap: var(--s-1);
-  font-size: var(--t-meta);
-  color: var(--text-3);
+  padding: var(--s-3) var(--s-4) var(--s-3);
+  border-radius: var(--radius-pool);
+  background: var(--raised);
+  box-shadow: var(--shadow-pool);
 }
 
-/* ---------- Banners ---------- */
+.status-model label {
+  font-size: var(--t-meta);
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.status-model-where {
+  font-size: var(--t-meta);
+  color: var(--text-2);
+}
+
+/* Typed requests: a long capsule of deep water with a silt droplet to send. */
+.ask-form {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-1) var(--s-1) var(--s-1) var(--s-5);
+  border-radius: var(--radius-pill);
+  background: var(--ramp-1);
+  box-shadow: inset 0 2px 6px rgba(2, 10, 16, 0.55), 0 0 0 1px var(--ramp-4);
+  transition: box-shadow var(--t-state) var(--ease-out);
+}
+
+.ask-form:focus-within {
+  box-shadow: inset 0 2px 6px rgba(2, 10, 16, 0.55), 0 0 0 2px var(--silt);
+}
+
+.ask-form .input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--t-body);
+}
+
+.ask-form .input:focus {
+  box-shadow: none;
+}
+
+.ask-form .btn {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 var(--s-5);
+}
+
+/* ---------- Banners: pools tinted by what they say ---------- */
 
 .banner {
   display: flex;
   align-items: flex-start;
   gap: var(--s-3);
-  padding: var(--s-3) var(--s-4);
-  border: 1px solid;
-  border-radius: var(--radius);
+  padding: var(--s-3) var(--s-5);
+  border-radius: var(--radius-pool);
   max-width: 76ch;
 }
 
@@ -543,7 +741,7 @@ body[data-voice-state="speaking"] .status-label {
 
 .banner-error {
   background: var(--coral-ground);
-  border-color: var(--coral-edge);
+  box-shadow: inset 0 0 0 1px var(--coral-edge), var(--shadow-pool);
   color: var(--coral-text);
 }
 
@@ -553,14 +751,14 @@ body[data-voice-state="speaking"] .status-label {
 
 .banner-warn {
   background: var(--amber-ground);
-  border-color: var(--amber-edge);
+  box-shadow: inset 0 0 0 1px var(--amber-edge);
   color: var(--amber-text);
 }
 
 .banner-inline {
   align-items: center;
   max-width: none;
-  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-4);
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-5);
 }
 
 .banner-inline .icon {
@@ -580,7 +778,7 @@ body[data-voice-state="speaking"] .status-label {
 
 .banner-error .btn-secondary {
   background: transparent;
-  border-color: var(--coral-edge);
+  box-shadow: inset 0 0 0 1px var(--coral-edge);
   color: var(--text);
 }
 
@@ -593,50 +791,54 @@ body[data-voice-state="speaking"] .status-label {
 }
 
 .main-content > .banner {
-  margin-bottom: var(--s-5);
+  margin: 0 auto var(--s-5);
 }
 
 /* ---------- Delta (signature) ---------- */
+
+.delta {
+  padding: var(--s-4) var(--s-5) var(--s-3);
+  border-radius: var(--radius-pool);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--ramp-1) 70%, var(--ramp-2)), var(--ramp-1));
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--ramp-10) 4%, transparent), var(--shadow-pool);
+}
 
 .delta-figure {
   position: relative;
   display: grid;
   grid-template-columns: 1fr minmax(170px, 34%);
   align-items: stretch;
-  padding-top: 22px;
+  padding-top: 26px;
 }
 
 .delta-svg {
   width: 100%;
-  height: 108px;
+  height: 108px;  /* app.js sets the real height to match the legend */
   overflow: visible;
 }
 
-.delta-svg path {
-  fill: none;
-  stroke-linecap: butt;
+/* The delta is filled ribbons (app.js); the swell layer carries the rolling light crest. */
+.delta-svg .channel {
+  transition: opacity var(--t-state) var(--ease-out);
 }
 
-.delta-svg .trunk {
-  fill: var(--outcome-replies);
-}
-
-.delta-svg .channel.is-failed {
-  stroke: var(--coral);
-  stroke-dasharray: 2 7;
+.delta-svg .swell {
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 .delta-svg .channel.is-dimmed {
   opacity: 0.28;
 }
 
-.delta-svg .draw {
-  animation: delta-draw 900ms var(--ease-out) both;
+/* First appearance: the water pours in from the source. */
+.delta-svg.is-pouring {
+  animation: delta-pour 1100ms var(--ease-out) both;
 }
 
-@keyframes delta-draw {
-  from { stroke-dashoffset: var(--len); }
-  to { stroke-dashoffset: 0; }
+@keyframes delta-pour {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 -8px 0 0); }
 }
 
 .delta-source {
@@ -644,7 +846,7 @@ body[data-voice-state="speaking"] .status-label {
   left: 0;
   top: 0;
   font-size: var(--t-meta);
-  color: var(--text-3);
+  color: var(--text-2);
 }
 
 .delta-source strong {
@@ -674,20 +876,20 @@ body[data-voice-state="speaking"] .status-label {
   align-items: baseline;
   gap: var(--s-2);
   width: 100%;
-  padding: 2px var(--s-2);
+  padding: 2px var(--s-3);
   border: 0;
-  border-radius: var(--radius-small);
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--text-2);
   font-size: var(--t-meta);
   text-align: left;
   cursor: pointer;
-  transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out);
+  transition: background-color var(--t-quick) var(--ease-out), color var(--t-quick) var(--ease-out);
 }
 
 .delta-legend button:hover,
 .delta-legend button:focus-visible {
-  background: var(--raised);
+  background: var(--ramp-4);
   color: var(--text);
 }
 
@@ -715,41 +917,89 @@ body[data-voice-state="speaking"] .status-label {
   display: none;
 }
 
-/* ---------- Latest exchange ---------- */
+/* ---------- Section titles over capsules ---------- */
 
 .latest > .section-title,
 .recent .section-title,
-.system > .section-title {
-  font-size: var(--t-meta);
-  color: var(--text-3);
+.system > .section-title,
+.tasks > .section-title {
+  font-size: var(--t-body);
+  color: var(--text-2);
 }
 
-.latest > .section-title {
-  margin-bottom: var(--s-1);
+.latest > .section-title,
+.tasks > .section-title {
+  margin-bottom: var(--s-3);
 }
+
+/* ---------- Latest exchange: two bubbles, your words then the reply ---------- */
 
 .latest-body {
-  display: grid;
-  grid-template-columns: 112px minmax(0, 1fr);
-  grid-template-areas:
-    "when query"
-    ".    heard"
-    ".    reply"
-    ".    meta"
-    ".    hint";
-  gap: 2px var(--s-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
 }
 
-.latest-body > .empty-state,
-.latest-body > .muted {
-  grid-column: 1 / -1;
-  grid-area: auto;
+.bubble {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  max-width: min(88%, 720px);
+  padding: var(--s-4) var(--s-5);
+  border-radius: var(--radius-pool);
+  box-shadow: var(--shadow-pool);
 }
 
-.latest-body .heard-line { grid-area: heard; }
-.latest-body .latest-reply { grid-area: reply; }
-.latest-body .latest-meta { grid-area: meta; }
-.latest-body .latest-hint { grid-area: hint; }
+/* Yours: lit by the channel, leaning right with its corner toward the reply. */
+.bubble-you {
+  align-self: flex-end;
+  border-bottom-right-radius: 8px;
+  background: linear-gradient(160deg, var(--silt-pool-strong), var(--silt-pool));
+}
+
+/* Jarvis's: deep water, leaning left. */
+.bubble-jarvis {
+  align-self: flex-start;
+  border-top-left-radius: 8px;
+  background: var(--raised);
+}
+
+.latest-body.is-failed .bubble-jarvis {
+  background: var(--coral-ground);
+  box-shadow: inset 0 0 0 1px var(--coral-edge), var(--shadow-pool);
+}
+
+.latest-when {
+  font-size: var(--t-meta);
+  color: var(--text-2);
+}
+
+.latest-query {
+  font-size: var(--t-display);
+  font-weight: 700;
+  line-height: 1.2;
+  /* Long sentences scale down and cap at three lines; the full text is in the tooltip and Conversations. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  letter-spacing: -0.01em;
+  quotes: "“" "”";
+}
+
+.latest-query.is-medium { font-size: var(--t-title); }
+.latest-query.is-long { font-size: var(--t-lead); line-height: 1.35; }
+
+.latest-reply {
+  font-size: var(--t-lead);
+  color: var(--text);
+  max-width: 62ch;
+}
+
+.latest-body.is-failed .latest-reply {
+  color: var(--coral-text);
+}
 
 .latest-meta {
   display: flex;
@@ -758,22 +1008,50 @@ body[data-voice-state="speaking"] .status-label {
   gap: var(--s-1) var(--s-3);
   margin-top: var(--s-1);
   font-size: var(--t-meta);
-  color: var(--text-3);
+  color: var(--text-2);
 }
 
-/* Background tasks: same two columns as the last exchange, status where the time sits. */
-.tasks > .section-title {
-  margin-bottom: var(--s-1);
-  font-size: var(--t-meta);
-  color: var(--text-3);
+.latest-body > .muted,
+.latest-body > .empty-state {
+  padding: 0;
 }
+
+/* Jarvis is thinking: three droplets rising and falling in its bubble. */
+.bubble-jarvis.is-pending {
+  padding: var(--s-4) var(--s-5);
+}
+
+.droplets {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  height: 1.6em;
+}
+
+.droplets i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--silt);
+  animation: droplet-bob 1.2s var(--ease-out) infinite;
+}
+
+.droplets i:nth-child(2) { animation-delay: 0.15s; background: var(--silt-deep); }
+.droplets i:nth-child(3) { animation-delay: 0.3s; background: var(--sage); }
+
+@keyframes droplet-bob {
+  0%, 100% { transform: translateY(2px) scale(0.85); opacity: 0.6; }
+  40% { transform: translateY(-4px) scale(1); opacity: 1; }
+}
+
+/* ---------- Background tasks: pools with their steps as droplets ---------- */
 
 .task-list {
   margin: 0;
   padding: 0;
   list-style: none;
   display: grid;
-  gap: var(--s-4);
+  gap: var(--s-3);
 }
 
 .task {
@@ -784,6 +1062,20 @@ body[data-voice-state="speaking"] .status-label {
     ".      steps"
     ".      result";
   gap: var(--s-1) var(--s-4);
+  padding: var(--s-4) var(--s-5);
+  border-radius: var(--radius-pool);
+  background: var(--raised);
+  box-shadow: var(--shadow-pool);
+}
+
+.task.is-running {
+  background: linear-gradient(160deg, var(--silt-pool), var(--raised) 70%);
+}
+
+/* Waiting for your OK: the whole pool turns amber rather than a box appearing inside it. */
+.task.is-waiting {
+  background: linear-gradient(160deg, color-mix(in oklab, var(--amber-text) 10%, var(--amber-ground)), var(--amber-ground));
+  box-shadow: inset 0 0 0 1px var(--amber-edge), var(--shadow-pool);
 }
 
 .task-status {
@@ -792,7 +1084,7 @@ body[data-voice-state="speaking"] .status-label {
   flex-direction: column;
   padding-top: 2px;
   font-size: var(--t-meta);
-  color: var(--text-3);
+  color: var(--text-2);
 }
 
 .task-state {
@@ -802,7 +1094,8 @@ body[data-voice-state="speaking"] .status-label {
 
 .task.is-done .task-state { color: var(--sage); }
 .task.is-failed .task-state { color: var(--coral-text); }
-.task.is-cancelled .task-state { color: var(--text-3); }
+.task.is-cancelled .task-state { color: var(--text-2); }
+.task.is-waiting .task-state { color: var(--amber-text); }
 
 .task-time {
   font-variant-numeric: tabular-nums;
@@ -837,14 +1130,15 @@ body[data-voice-state="speaking"] .status-label {
 
 .task-steps {
   grid-area: steps;
-  margin: 0;
+  margin: var(--s-1) 0 0;
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 2px;
+  gap: var(--s-1);
 }
 
 .task-step {
+  position: relative;
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr);
   column-gap: var(--s-2);
@@ -856,20 +1150,27 @@ body[data-voice-state="speaking"] .status-label {
   content: "";
   grid-row: 1 / span 2;
   align-self: start;
-  width: 10px;
-  height: 3px;
-  margin-top: 0.6em;
-  border-radius: 2px;
+  width: 8px;
+  height: 8px;
+  margin: 0.45em 0 0 2px;
+  border-radius: 50%;
   background: var(--sage-deep);
 }
 
-.task-step.is-running { color: var(--ramp-10); }
+.task-step.is-running { color: var(--text); }
 .task-step.is-running::before {
   background: var(--silt);
-  animation: task-pulse 1.4s ease-in-out infinite;
+  box-shadow: 0 0 0 0 color-mix(in oklab, var(--silt) 60%, transparent);
+  animation: step-ripple 1.6s var(--ease-out) infinite;
 }
 .task-step.is-failed { color: var(--coral-text); }
 .task-step.is-failed::before { background: var(--coral); }
+.task-step.is-skipped { color: var(--text-2); text-decoration: line-through; }
+
+@keyframes step-ripple {
+  from { box-shadow: 0 0 0 0 color-mix(in oklab, var(--silt) 55%, transparent); }
+  to { box-shadow: 0 0 0 8px color-mix(in oklab, var(--silt) 0%, transparent); }
+}
 
 .task-step-detail {
   grid-column: 2;
@@ -877,33 +1178,25 @@ body[data-voice-state="speaking"] .status-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-code);
   font-size: var(--t-meta);
-  color: var(--text-3);
+  color: var(--text-2);
 }
 
 .task-result {
   grid-area: result;
-  margin: var(--s-1) 0 0;
+  margin: var(--s-2) 0 0;
   font-size: var(--t-lead);
-  color: var(--text-2);
+  color: var(--text);
 }
 
 .task.is-failed .task-result { color: var(--coral-text); }
 
-.task.is-waiting .task-state { color: var(--amber-text); }
-.task-step.is-skipped { color: var(--text-3); text-decoration: line-through; }
-
-/* A step waiting for the user's OK: the command in full, then the two answers. */
+/* A step waiting for the user's OK: an amber pool with the command in full and two answers. */
 .task-approval {
   grid-column: 2;
   display: grid;
   gap: var(--s-2);
-  margin-top: var(--s-2);
-  padding: var(--s-3) var(--s-4);
-  border-radius: var(--radius);
-  background: var(--amber-ground);
-  box-shadow: inset 0 0 0 1px var(--amber-edge);
+  margin-top: var(--s-3);
 }
 
 .task-approval-label {
@@ -916,9 +1209,12 @@ body[data-voice-state="speaking"] .status-label {
   margin: 0;
   max-height: 9em;
   overflow: auto;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--radius);
+  background: var(--ramp-1);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-family: var(--font-code);
+  font-family: var(--font);
   font-size: var(--t-meta);
   color: var(--text);
 }
@@ -932,18 +1228,10 @@ body[data-voice-state="speaking"] .status-label {
 
 .task-approval-hint {
   font-size: var(--t-meta);
-  color: var(--text-3);
+  color: var(--text-2);
 }
 
-@keyframes task-pulse {
-  50% { opacity: 0.35; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .task-step.is-running::before { animation: none; }
-}
-
-/* Text with the outcome dash, not a pill: it wraps cleanly when the confidence note is long. */
+/* The route a request took: text with a small channel mark, wraps cleanly. */
 .route-tag {
   color: var(--silt);
 }
@@ -951,11 +1239,11 @@ body[data-voice-state="speaking"] .status-label {
 .route-tag::before {
   content: "";
   display: inline-block;
-  width: 10px;
-  height: 3px;
+  width: 8px;
+  height: 8px;
   margin-right: 6px;
   vertical-align: middle;
-  border-radius: 2px;
+  border-radius: 50%;
   background: currentColor;
 }
 
@@ -963,115 +1251,73 @@ body[data-voice-state="speaking"] .status-label {
   color: var(--amber-text);
 }
 
-.latest-body > .muted,
-.latest-body > .empty-state {
-  grid-column: 1 / -1;
-}
+/* ---------- Capsule lists: rows, turns, commands, macros, shortcuts ---------- */
 
-.latest-when {
-  grid-area: when;
-  padding-top: 8px;
-  font-size: var(--t-meta);
-  color: var(--text-3);
-}
-
-
-.latest-query {
-  grid-area: query;
-  font-size: var(--t-display);
-  font-weight: 700;
-  line-height: 1.2;
-  /* Long sentences scale down and cap at three lines; the full text is in the tooltip and Conversations. */
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  letter-spacing: -0.01em;
-  quotes: "“" "”";
-}
-
-.latest-reply {
-  font-size: var(--t-lead);
-  color: var(--text-2);
-  max-width: 62ch;
-}
-
-.latest-body.is-failed .latest-reply {
-  color: var(--coral-text);
-}
-
-.latest-body > .empty-state {
-  padding: 0;
-}
-
-/* ---------- Rows (recent turns) ---------- */
-
-.rows {
+.rows,
+.turn-list,
+.tool-list,
+.rule-list,
+.macro-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
   list-style: none;
   padding: 0;
 }
 
-.row {
-  display: grid;
-  grid-template-columns: 112px minmax(0, 1fr) minmax(0, 1.2fr) 128px;
-  gap: var(--s-4);
-  align-items: baseline;
-  padding: 6px var(--s-2);
-  margin: 0 calc(var(--s-2) * -1);
-  border-radius: var(--radius-small);
-  transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out);
-}
-
-.rows:has(.row:hover) .row:not(:hover) {
-  color: var(--text-2);
-}
-
-.row:hover {
-  background: var(--raised);
-}
-
-/* Hairlines: 1px, inset to the text column, hidden next to a lifted row. */
 .row,
 .turn,
 .tool-row,
 .rule,
 .macro {
   position: relative;
+  border-radius: var(--radius-pool);
+  background: color-mix(in oklab, var(--ramp-3) 78%, var(--ramp-2));
+  transition: background-color var(--t-state) var(--ease-out), box-shadow var(--t-state) var(--ease-out),
+              transform var(--t-state) var(--ease-flow);
 }
 
-.row::before,
-.turn::before,
-.tool-row::before,
-.rule::before,
-.macro::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: var(--s-2);
-  right: var(--s-2);
-  height: 1px;
-  background: var(--hairline);
-  pointer-events: none;
+/* Hover swells the capsule's water (tone and shadow); the capsule itself stays under the pointer. */
+.row:hover,
+.turn:hover,
+.tool-row:hover,
+.rule:hover,
+.macro:hover,
+.turn:focus-within,
+.rule:focus-within,
+.macro:focus-within {
+  background: var(--ramp-4);
+  box-shadow: var(--shadow-pool);
 }
 
-.row:first-child::before,
-.turn:first-child::before,
-.tool-row:first-child::before,
-.rule:first-child::before,
-.macro:first-child::before,
-:is(.row, .turn, .tool-row, .rule, .macro):hover::before,
-:is(.row, .turn, .tool-row, .rule, .macro):hover + :is(.row, .turn, .tool-row, .rule, .macro)::before {
-  opacity: 0;
+.row:active,
+.turn:active {
+  transform: scale(0.995);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr) minmax(0, 1.2fr) 128px;
+  gap: var(--s-4);
+  align-items: baseline;
+  padding: var(--s-3) var(--s-4);
 }
 
 .row-when {
   font-size: var(--t-meta);
-  color: var(--text-3);
+  color: var(--text-2);
+}
+
+.row-query {
+  font-weight: 700;
 }
 
 .row-reply {
   color: var(--text-2);
+}
+
+.row.is-failed {
+  background: color-mix(in oklab, var(--coral-ground) 80%, var(--ramp-2));
 }
 
 .row.is-failed .row-reply {
@@ -1080,10 +1326,11 @@ body[data-voice-state="speaking"] .status-label {
 
 .row-tool {
   font-size: var(--t-meta);
-  color: var(--text-3);
+  color: var(--text-2);
   text-align: right;
 }
 
+/* An outcome's mark is a droplet of its channel colour, always beside its words. */
 .outcome {
   display: inline-flex;
   align-items: center;
@@ -1092,13 +1339,14 @@ body[data-voice-state="speaking"] .status-label {
 
 .outcome::before {
   content: "";
-  width: 10px;
-  height: 3px;
-  border-radius: 2px;
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
   background: var(--dot, var(--outcome-other));
 }
 
-/* Inline, not flex: when the label wraps, the dash stays beside its first word. */
+/* Inline, not flex: when the label wraps, the droplet stays beside its first word. */
 .row-tool.outcome {
   display: block;
 }
@@ -1109,451 +1357,11 @@ body[data-voice-state="speaking"] .status-label {
   vertical-align: middle;
 }
 
-/* ---------- Tags ---------- */
-
-.tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 0 var(--s-2);
-  border: 1px solid var(--edge);
-  border-radius: 999px;
-  font-size: var(--t-meta);
-  line-height: 1.6;
-  color: var(--text-2);
-  white-space: nowrap;
-}
-
-.tag-error {
-  border-color: var(--coral-edge);
-  color: var(--coral-text);
-}
-
-.tag-learned {
-  border-color: var(--silt-deep);
-  color: var(--silt);
-}
-
-.risk-high {
-  border-color: var(--coral-edge);
-  color: var(--coral-text);
-}
-
-/* The most dangerous tier reads above High: filled, bold, not colour alone. */
-.risk-critical {
-  background: var(--coral-ground);
-  border-color: var(--coral);
-  color: var(--coral-text);
-  font-weight: 700;
-}
-
-.risk-critical::before {
-  content: "!";
-  margin-right: 4px;
-  font-weight: 700;
-}
-
-.risk-medium {
-  border-color: var(--amber-edge);
-  color: var(--amber-text);
-}
-
-.risk-safe {
-  border-color: var(--sage-deep);
-  color: var(--sage);
-}
-
-.fix-hint {
-  font-size: var(--t-meta);
-  color: var(--coral-text);
-}
-
-.fix-hint code {
-  color: var(--text);
-}
-
-/* ---------- System list ---------- */
-
-.system-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--s-3) var(--s-5);
-}
-
-.system-list div {
-  padding-top: var(--s-2);
-  border-top: 1px solid var(--hairline);
-}
-
-.system-list dt {
-  font-size: var(--t-meta);
-  color: var(--text-3);
-}
-
-.system-list dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.system-list dd.is-error {
-  color: var(--coral-text);
-}
-
-/* ---------- Forms ---------- */
-
-.toolbar {
-  display: flex;
-  gap: var(--s-3);
-  align-items: flex-end;
-  flex-wrap: wrap;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-1);
-  min-width: 0;
-}
-
-.field-grow {
-  flex: 1;
-  min-width: 220px;
-}
-
-.field label,
-.status-model label {
-  font-size: var(--t-meta);
-  font-weight: 700;
-  color: var(--text-2);
-}
-
-.optional {
-  font-weight: 400;
-  color: var(--text-3);
-}
-
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-4);
-  padding-top: var(--s-4);
-}
-
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--s-4);
-}
-
-.input,
-.select {
-  width: 100%;
-  min-height: 38px;
-  padding: var(--s-2) var(--s-3);
-  background: var(--ramp-1);
-  border: 1px solid var(--control-edge);
-  border-radius: var(--radius);
-  color: var(--text);
-  transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out);
-}
-
-textarea.input {
-  resize: vertical;
-  line-height: 1.5;
-}
-
-.input::placeholder {
-  color: var(--ramp-8);
-  opacity: 1;
-}
-
-.input:hover,
-.select:hover {
-  border-color: var(--ramp-7);
-}
-
-.input:focus,
-.select:focus {
-  outline: none;
-  border-color: var(--silt);
-  box-shadow: 0 0 0 1px var(--silt);
-}
-
-.select {
-  appearance: none;
-  padding-right: var(--s-6);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%2393b4bd' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-  cursor: pointer;
-}
-
-.select option,
-.select optgroup {
-  background: var(--ramp-1);
-  color: var(--text);
-}
-
-.status-model {
-  flex: 0 1 300px;
-  min-width: 200px;
-}
-
-.status-model-where {
-  font-size: var(--t-meta);
-  color: var(--text-3);
-}
-
-.select-compact {
-  width: 100%;
-  min-height: 34px;
-  padding-top: 5px;
-  padding-bottom: 5px;
-}
-
-.switch-row {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  margin-bottom: var(--s-4);
-  cursor: pointer;
-}
-
-.switch {
-  appearance: none;
-  position: relative;
-  width: 38px;
-  height: 22px;
-  flex-shrink: 0;
-  background: var(--control);
-  border: 1px solid var(--control-edge);
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background-color 180ms var(--ease-out);
-}
-
-.switch::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--text-2);
-  transition: transform 180ms var(--ease-out), background-color 180ms var(--ease-out);
-}
-
-.switch:checked {
-  background: var(--silt-deep);
-  border-color: var(--silt);
-}
-
-.switch:checked::after {
-  transform: translateX(16px);
-  background: var(--text);
-}
-
-/* ---------- Buttons ---------- */
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--s-2);
-  min-height: 38px;
-  padding: var(--s-2) var(--s-4);
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  font-weight: 700;
-  cursor: pointer;
-  transition: background-color 160ms var(--ease-out), border-color 160ms var(--ease-out), color 160ms var(--ease-out);
-  align-self: flex-start;
-}
-
-.btn:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
-.btn[aria-busy="true"] {
-  cursor: progress;
-}
-
-.btn-primary {
-  background: var(--silt);
-  color: var(--on-silt);
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--silt-hover);
-}
-
-.btn-secondary {
-  background: var(--control);
-  border-color: var(--edge);
-  color: var(--text);
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: var(--ramp-5);
-}
-
-.btn-quiet {
-  background: transparent;
-  color: var(--text-2);
-}
-
-.btn-quiet:hover:not(:disabled) {
-  background: var(--raised);
-  color: var(--coral-text);
-}
-
-.btn-small {
-  min-height: 30px;
-  padding: var(--s-1) var(--s-3);
-  font-size: var(--t-meta);
-}
-
-.button-row {
-  display: flex;
-  gap: var(--s-2);
-  flex-wrap: wrap;
-}
-
-.link-button {
-  padding: 2px 0;
-  border: 0;
-  background: none;
-  color: var(--silt);
-  font-size: var(--t-meta);
-  font-weight: 700;
-  text-decoration: underline;
-  text-decoration-color: transparent;
-  text-underline-offset: 3px;
-  cursor: pointer;
-  transition: text-decoration-color 160ms var(--ease-out);
-}
-
-.link-button:hover {
-  text-decoration-color: currentColor;
-}
-
-/* ---------- Disclosure + preview ---------- */
-
-.disclosure {
-  border-top: 1px solid var(--hairline);
-  border-bottom: 1px solid var(--hairline);
-  padding: var(--s-3) 0;
-}
-
-.disclosure[open] {
-  padding-bottom: var(--s-5);
-}
-
-.disclosure > summary {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  width: fit-content;
-  padding: var(--s-1) var(--s-2);
-  margin-left: calc(var(--s-2) * -1);
-  border-radius: var(--radius-small);
-  color: var(--silt);
-  font-weight: 700;
-  list-style: none;
-  cursor: pointer;
-}
-
-.disclosure > summary::-webkit-details-marker {
-  display: none;
-}
-
-.disclosure > summary::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-right: 1.6px solid currentColor;
-  border-bottom: 1.6px solid currentColor;
-  transform: rotate(-45deg);
-  transition: transform 160ms var(--ease-out);
-}
-
-.disclosure[open] > summary::before {
-  transform: rotate(45deg);
-}
-
-.disclosure > summary:hover {
-  background: var(--raised);
-}
-
-.preview {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-3);
-  margin-top: var(--s-5);
-  padding: var(--s-4);
-  background: var(--raised);
-  border: 1px solid var(--edge);
-  border-radius: var(--radius);
-}
-
-.preview-title {
-  font-size: var(--t-lead);
-}
-
-.preview-list {
-  display: grid;
-  gap: var(--s-2);
-}
-
-.preview-list div {
-  display: grid;
-  grid-template-columns: 120px 1fr;
-  gap: var(--s-3);
-}
-
-.preview-list dt {
-  font-size: var(--t-meta);
-  color: var(--text-3);
-}
-
-.preview-list dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.preview-list code {
-  color: var(--text);
-}
-
-/* ---------- Lists: turns, tools, macros, rules ---------- */
-
-.turn-list,
-.tool-list,
-.rule-list,
-.macro-list {
-  display: flex;
-  flex-direction: column;
-}
-
 .turn,
 .tool-row,
 .rule,
 .macro {
-  padding: var(--s-3) var(--s-2);
-  margin: 0 calc(var(--s-2) * -1);
-  border-radius: var(--radius-small);
-  transition: background-color 160ms var(--ease-out);
-}
-
-.turn:hover,
-.tool-row:hover,
-.rule:hover,
-.macro:hover,
-.turn:focus-within,
-.rule:focus-within,
-.macro:focus-within {
-  background: var(--raised);
+  padding: var(--s-4) var(--s-5);
 }
 
 .turn-head {
@@ -1572,12 +1380,16 @@ textarea.input {
 .turn-time {
   flex-shrink: 0;
   font-size: var(--t-meta);
-  color: var(--text-3);
+  color: var(--text-2);
 }
 
 .turn-reply {
   color: var(--text-2);
   max-width: 70ch;
+}
+
+.turn.is-failed {
+  background: color-mix(in oklab, var(--coral-ground) 80%, var(--ramp-2));
 }
 
 .turn.is-failed .turn-reply {
@@ -1586,12 +1398,12 @@ textarea.input {
 
 .heard-line {
   font-size: var(--t-meta);
-  color: var(--text-3);
+  color: var(--text-2);
   quotes: "“" "”";
 }
 
 .heard-line q {
-  color: var(--text-2);
+  color: var(--text);
 }
 
 .turn-meta {
@@ -1599,9 +1411,9 @@ textarea.input {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--s-2) var(--s-3);
-  margin-top: var(--s-1);
+  margin-top: var(--s-2);
   font-size: var(--t-meta);
-  color: var(--text-3);
+  color: var(--text-2);
 }
 
 .tool-row {
@@ -1620,7 +1432,7 @@ textarea.input {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--s-2);
-  margin: 2px 0 var(--s-1);
+  margin: var(--s-1) 0 var(--s-2);
 }
 
 .rule-title {
@@ -1632,7 +1444,7 @@ textarea.input {
 
 .tool-id {
   font-size: var(--t-meta);
-  color: var(--text-3);
+  color: var(--text-2);
 }
 
 .tool-desc,
@@ -1648,9 +1460,9 @@ textarea.input {
 
 .tool-command {
   align-self: start;
-  padding: var(--s-2) var(--s-3);
+  padding: var(--s-3) var(--s-4);
   background: var(--ramp-1);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius);
   font-size: var(--t-meta);
   color: var(--text);
   white-space: pre-wrap;
@@ -1674,14 +1486,13 @@ textarea.input {
 }
 
 .macro-steps li::marker {
-  color: var(--text-3);
-  font-size: var(--t-meta);
+  color: var(--silt);
 }
 
 .macro-dir {
   grid-column: 1;
   font-size: var(--t-meta);
-  color: var(--text-3);
+  color: var(--text-2);
 }
 
 .macro-actions {
@@ -1704,7 +1515,7 @@ textarea.input {
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--s-2);
-  margin-top: var(--s-1);
+  margin-top: var(--s-2);
 }
 
 .trigger-list {
@@ -1713,10 +1524,10 @@ textarea.input {
 }
 
 .trigger-list li {
-  padding: 0 var(--s-2);
+  padding: 1px var(--s-3);
   background: var(--ramp-1);
-  border-radius: var(--radius-small);
-  color: var(--text-2);
+  border-radius: var(--radius-pill);
+  color: var(--text);
   font-size: var(--t-meta);
   line-height: 1.7;
   quotes: "“" "”";
@@ -1726,13 +1537,13 @@ textarea.input {
 .trigger-list li::after { content: close-quote; }
 
 .rule-target {
-  margin-top: var(--s-1);
+  margin-top: var(--s-2);
   font-size: var(--t-meta);
-  color: var(--text-3);
+  color: var(--text-2);
 }
 
 .list-block .list-meta {
-  margin-bottom: var(--s-1);
+  margin-bottom: var(--s-2);
 }
 
 .section-head + .help {
@@ -1743,11 +1554,469 @@ textarea.input {
   margin-top: var(--s-3);
 }
 
+/* ---------- Tags: soft filled droplets of colour ---------- */
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--s-3);
+  border-radius: var(--radius-pill);
+  background: var(--ramp-4);
+  font-size: var(--t-meta);
+  line-height: 1.6;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.tag-error,
+.risk-high {
+  background: var(--coral-ground);
+  color: var(--coral-text);
+}
+
+.tag-learned {
+  background: color-mix(in oklab, var(--silt) 18%, var(--ramp-2));
+  color: var(--silt);
+}
+
+/* The most dangerous tier reads above High: an edge, bold, not colour alone. */
+.risk-critical {
+  background: var(--coral-ground);
+  box-shadow: inset 0 0 0 1px var(--coral);
+  color: var(--coral-text);
+  font-weight: 700;
+}
+
+.risk-critical::before {
+  content: "!";
+  margin-right: 4px;
+  font-weight: 700;
+}
+
+.risk-medium {
+  background: var(--amber-ground);
+  color: var(--amber-text);
+}
+
+.risk-safe {
+  background: color-mix(in oklab, var(--sage) 16%, var(--ramp-2));
+  color: var(--sage);
+}
+
+.fix-hint {
+  font-size: var(--t-meta);
+  color: var(--coral-text);
+}
+
+.fix-hint code {
+  color: var(--text);
+}
+
+/* ---------- Running on this computer: four small pools ---------- */
+
+.system-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-2);
+}
+
+.system-list div {
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--radius-pool);
+  background: color-mix(in oklab, var(--ramp-3) 60%, var(--ramp-2));
+}
+
+.system-list dt {
+  font-size: var(--t-meta);
+  color: var(--text-2);
+}
+
+.system-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.system-list dd.is-error {
+  color: var(--coral-text);
+}
+
+/* ---------- Forms: wells of deep water ---------- */
+
+.toolbar {
+  display: flex;
+  gap: var(--s-3);
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+.field-grow {
+  flex: 1;
+  min-width: 220px;
+}
+
+.field label {
+  font-size: var(--t-meta);
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.optional {
+  font-weight: 400;
+  color: var(--text-2);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding-top: var(--s-4);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-4);
+}
+
+.input,
+.select {
+  width: 100%;
+  min-height: 42px;
+  padding: var(--s-2) var(--s-4);
+  background: var(--ramp-1);
+  border: 0;
+  border-radius: var(--radius);
+  box-shadow: inset 0 2px 5px rgba(2, 10, 16, 0.5), 0 0 0 1px var(--control-edge);
+  color: var(--text);
+  transition: box-shadow var(--t-quick) var(--ease-out), background-color var(--t-quick) var(--ease-out);
+}
+
+textarea.input {
+  resize: vertical;
+  line-height: 1.5;
+  padding-top: var(--s-3);
+}
+
+.input::placeholder {
+  color: var(--ramp-8);
+  opacity: 1;
+}
+
+.input:hover,
+.select:hover {
+  box-shadow: inset 0 2px 5px rgba(2, 10, 16, 0.5), 0 0 0 1px var(--ramp-7);
+}
+
+.input:focus,
+.select:focus {
+  outline: none;
+  box-shadow: inset 0 2px 5px rgba(2, 10, 16, 0.5), 0 0 0 2px var(--silt);
+}
+
+.select {
+  appearance: none;
+  padding-right: var(--s-7);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%2393b4bd' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+  cursor: pointer;
+}
+
+.select option,
+.select optgroup {
+  background: var(--ramp-1);
+  color: var(--text);
+}
+
+.select-compact {
+  width: 100%;
+  min-height: 38px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  border-radius: var(--radius-pill);
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-bottom: var(--s-2);
+  cursor: pointer;
+}
+
+/* The switch: a droplet sliding along its channel. */
+.switch {
+  appearance: none;
+  position: relative;
+  width: 44px;
+  height: 26px;
+  flex-shrink: 0;
+  background: var(--ramp-1);
+  border: 0;
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 2px 4px rgba(2, 10, 16, 0.6), 0 0 0 1px var(--control-edge);
+  cursor: pointer;
+  transition: background-color var(--t-state) var(--ease-out), box-shadow var(--t-state) var(--ease-out);
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-2);
+  transition: transform 420ms var(--ease-flow), background-color var(--t-state) var(--ease-out), width var(--t-quick) var(--ease-out);
+}
+
+.switch:active::after {
+  width: 24px;
+}
+
+.switch:checked {
+  background: var(--silt-deep);
+  box-shadow: inset 0 2px 4px rgba(2, 10, 16, 0.35), 0 0 0 1px var(--silt);
+}
+
+.switch:checked::after {
+  transform: translateX(18px);
+  background: var(--text);
+}
+
+.switch:checked:active::after {
+  transform: translateX(12px);
+}
+
+/* ---------- Buttons: capsules that fill like water ---------- */
+
+.btn {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  min-height: 40px;
+  padding: var(--s-2) var(--s-5);
+  border: 0;
+  border-radius: var(--radius-pill);
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color var(--t-quick) var(--ease-out), color var(--t-quick) var(--ease-out),
+              box-shadow var(--t-quick) var(--ease-out), transform var(--t-quick) var(--ease-out);
+  align-self: flex-start;
+}
+
+/* Hover: lighter water rises from the bottom of the capsule, a curved surface leading. */
+.btn::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: -20%;
+  right: -20%;
+  top: 0;
+  height: 140%;
+  border-radius: 45% 45% 0 0;
+  background: var(--btn-fill, var(--ramp-5));
+  transform: translateY(105%);
+  transition: transform 420ms var(--ease-out);
+}
+
+.btn:hover:not(:disabled)::before {
+  transform: translateY(8%);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.btn[aria-busy="true"] {
+  cursor: progress;
+}
+
+.btn-primary {
+  --btn-fill: var(--silt-hover);
+  background: var(--silt);
+  color: var(--on-silt);
+  box-shadow: 0 8px 18px -10px color-mix(in oklab, var(--silt) 70%, transparent);
+}
+
+.btn-secondary {
+  --btn-fill: var(--ramp-5);
+  background: var(--control);
+  color: var(--text);
+}
+
+.btn-quiet {
+  --btn-fill: var(--raised);
+  background: transparent;
+  color: var(--text-2);
+}
+
+.btn-quiet:hover:not(:disabled) {
+  color: var(--coral-text);
+}
+
+.btn-small {
+  min-height: 32px;
+  padding: var(--s-1) var(--s-4);
+  font-size: var(--t-meta);
+}
+
+.button-row {
+  display: flex;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+
+.link-button {
+  padding: var(--s-1) var(--s-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--silt);
+  font-size: var(--t-meta);
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color var(--t-quick) var(--ease-out);
+}
+
+.link-button:hover {
+  background: color-mix(in oklab, var(--silt) 14%, transparent);
+}
+
+/* ---------- Disclosure: a capsule that pours open ---------- */
+
+.disclosure {
+  border-radius: var(--radius-pool);
+  background: color-mix(in oklab, var(--ramp-3) 60%, var(--ramp-2));
+  padding: var(--s-2);
+  transition: background-color var(--t-state) var(--ease-out);
+}
+
+.disclosure[open] {
+  background: var(--raised);
+  padding: var(--s-2) var(--s-5) var(--s-5);
+  box-shadow: var(--shadow-pool);
+}
+
+.disclosure::details-content {
+  height: 0;
+  overflow: clip;
+  transition: height 460ms var(--ease-out), content-visibility 460ms allow-discrete;
+}
+
+.disclosure[open]::details-content {
+  height: auto;
+}
+
+.disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  width: fit-content;
+  padding: var(--s-2) var(--s-4);
+  border-radius: var(--radius-pill);
+  color: var(--silt);
+  font-weight: 700;
+  list-style: none;
+  cursor: pointer;
+  transition: background-color var(--t-quick) var(--ease-out);
+}
+
+.disclosure[open] > summary {
+  margin-left: calc(var(--s-3) * -1);
+}
+
+.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* A plus that turns into a minus as the capsule opens. */
+.disclosure > summary::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  background:
+    linear-gradient(currentColor, currentColor) center / 12px 2px no-repeat,
+    linear-gradient(currentColor, currentColor) center / 2px 12px no-repeat;
+  border-radius: 1px;
+  transition: transform var(--t-state) var(--ease-flow);
+}
+
+.disclosure[open] > summary::before {
+  transform: rotate(90deg);
+  background:
+    linear-gradient(currentColor, currentColor) center / 2px 12px no-repeat;
+}
+
+.disclosure > summary:hover {
+  background: color-mix(in oklab, var(--silt) 12%, transparent);
+}
+
+/* Inside the open capsule already: no second container, just the check and its answer. */
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  margin-top: var(--s-5);
+}
+
+.preview .banner {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  font-weight: 700;
+}
+
+.preview-title {
+  font-size: var(--t-lead);
+}
+
+.preview-list {
+  display: grid;
+  gap: var(--s-2);
+}
+
+.preview-list div {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: var(--s-3);
+}
+
+.preview-list dt {
+  font-size: var(--t-meta);
+  color: var(--text-2);
+}
+
+.preview-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- Memory profile ---------- */
 
 .profile {
   max-width: 68ch;
   margin-top: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border-radius: var(--radius-pool);
+  background: color-mix(in oklab, var(--ramp-3) 60%, var(--ramp-2));
 }
 
 .profile-heading {
@@ -1773,14 +2042,15 @@ textarea.input {
   color: var(--text-2);
 }
 
-/* ---------- Settings ---------- */
+/* ---------- Settings: each group is its own pool ---------- */
 
 .settings-section {
   display: flex;
   flex-direction: column;
   gap: var(--s-4);
-  padding-top: var(--s-4);
-  border-top: 1px solid var(--hairline);
+  padding: var(--s-5);
+  border-radius: var(--radius-pool);
+  background: color-mix(in oklab, var(--ramp-3) 60%, var(--ramp-2));
 }
 
 .settings-section > .section-title {
@@ -1792,29 +2062,38 @@ textarea.input {
   max-width: 620px;
 }
 
+/* The shortcut recorder: a capsule that floods with silt while it listens for keys. */
 .recorder {
+  position: relative;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--s-4);
-  max-width: 420px;
-  min-height: 52px;
-  padding: var(--s-3) var(--s-4);
+  max-width: 440px;
+  min-height: 56px;
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-5);
   background: var(--ramp-1);
-  border: 1px dashed var(--edge);
-  border-radius: var(--radius);
+  border: 0;
+  border-radius: var(--radius-pill);
+  box-shadow: inset 0 2px 5px rgba(2, 10, 16, 0.5), 0 0 0 1px var(--control-edge);
   cursor: pointer;
-  transition: border-color 160ms var(--ease-out), background-color 160ms var(--ease-out);
+  transition: box-shadow var(--t-quick) var(--ease-out), background-color var(--t-state) var(--ease-out);
 }
 
 .recorder:hover {
-  border-color: var(--ramp-7);
+  box-shadow: inset 0 2px 5px rgba(2, 10, 16, 0.5), 0 0 0 1px var(--ramp-7);
 }
 
 .recorder.is-recording {
-  border-style: solid;
-  border-color: var(--silt);
-  background: var(--raised);
+  background: linear-gradient(110deg, var(--silt-pool), var(--silt-pool-strong), var(--silt-pool));
+  background-size: 200% 100%;
+  box-shadow: 0 0 0 2px var(--silt);
+  animation: recorder-flow 2.4s linear infinite;
+}
+
+@keyframes recorder-flow {
+  to { background-position: -200% 0; }
 }
 
 .recorder-label {
@@ -1827,17 +2106,17 @@ textarea.input {
   display: inline-flex;
   align-items: center;
   gap: var(--s-2);
-  padding: 3px var(--s-1) 3px var(--s-3);
-  background: var(--control);
-  border-radius: 999px;
+  padding: 3px var(--s-1) 3px var(--s-4);
+  background: var(--ramp-4);
+  border-radius: var(--radius-pill);
   color: var(--text);
 }
 
 .chip-clear {
-  min-height: 24px;
-  padding: 0 var(--s-2);
+  min-height: 26px;
+  padding: 0 var(--s-3);
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--silt);
   font-size: var(--t-meta);
@@ -1849,6 +2128,7 @@ textarea.input {
   background: var(--ramp-5);
 }
 
+/* A toast floats up like a bubble and settles. */
 .toast {
   position: fixed;
   right: var(--s-5);
@@ -1858,17 +2138,17 @@ textarea.input {
   align-items: center;
   gap: var(--s-4);
   max-width: min(440px, calc(100vw - 2 * var(--s-5)));
-  padding: var(--s-3) var(--s-3) var(--s-3) var(--s-4);
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-5);
+  min-height: 48px;
   background: var(--ramp-4);
-  border: 1px solid var(--edge);
-  border-radius: var(--radius);
-  box-shadow: 0 8px 24px rgba(3, 12, 18, 0.5);
-  animation: toast-in 220ms var(--ease-out);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-float);
+  animation: toast-in 520ms var(--ease-flow);
 }
 
 .toast[data-tone="error"] {
   background: var(--coral-ground);
-  border-color: var(--coral-edge);
+  box-shadow: inset 0 0 0 1px var(--coral-edge), var(--shadow-float);
   color: var(--coral-text);
 }
 
@@ -1877,22 +2157,22 @@ textarea.input {
 }
 
 .toast-action {
-  min-height: 30px;
-  padding: 0 var(--s-3);
-  border: 1px solid var(--silt);
-  border-radius: var(--radius-small);
-  background: transparent;
-  color: var(--silt);
+  min-height: 34px;
+  padding: 0 var(--s-4);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--silt);
+  color: var(--on-silt);
   font-weight: 700;
   cursor: pointer;
 }
 
 .toast-action:hover {
-  background: var(--ramp-5);
+  background: var(--silt-hover);
 }
 
 @keyframes toast-in {
-  from { transform: translateY(8px); opacity: 0; }
+  from { transform: translateY(14px) scale(0.92); opacity: 0; }
   to { transform: none; opacity: 1; }
 }
 
@@ -1915,54 +2195,10 @@ textarea.input {
   vertical-align: baseline;
 }
 
-/* ---------- Narrow windows (720px minimum) ---------- */
-
-@media (max-width: 860px) {
-  :root {
-    --sidebar: 176px;
-  }
-  .main-content {
-    padding: var(--s-5) var(--s-5) var(--s-7);
-  }
-  .row {
-    grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1.2fr);
-  }
-  .row-tool {
-    display: none;
-  }
-  .latest-body {
-    grid-template-columns: 96px 1fr;
-  }
-  .tool-row {
-    grid-template-columns: 1fr;
-  }
-  .delta-figure {
-    grid-template-columns: 1fr minmax(150px, 40%);
-  }
-}
-
-/* ---------- Reduced motion ---------- */
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    transition-duration: 0ms !important;
-  }
-  .delta-svg .draw,
-  .toast {
-    animation: none;
-  }
-}
-
 /* Pending exchange: what was heard, before Jarvis has answered. */
 .latest-reply.muted {
-  color: var(--text-3);
+  color: var(--text-2);
 }
-
-/* Long spoken requests shouldn't shout. */
-.latest-query.is-medium { font-size: var(--t-title); }
-.latest-query.is-long { font-size: var(--t-lead); line-height: 1.35; }
 
 /* Real transcripts contain URLs, snake_case ids and long words: never let them push the page sideways. */
 .row-query,
@@ -1980,18 +2216,112 @@ textarea.input {
   min-width: 0;
 }
 
-/* Typed requests: one line under the status, the same pipeline as speaking. */
-.ask-form {
-  display: flex;
-  gap: var(--s-2);
-  align-items: stretch;
+/* ---------- Narrower windows (720px minimum) ---------- */
+
+/* Not enough room for six labels: only the chosen destination opens its name. */
+@media (max-width: 1000px) {
+  .nav-item:not(.active) .nav-label {
+    max-width: 0;
+    opacity: 0;
+  }
+  .nav-item:not(.active) {
+    padding: 0 var(--s-3);
+    gap: 0;
+  }
 }
 
-.ask-form .input {
-  flex: 1 1 auto;
-  min-width: 0;
+@media (max-width: 860px) {
+  .main-content {
+    padding: var(--s-5) var(--s-5) var(--s-7);
+  }
+  .row {
+    grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1.2fr);
+  }
+  .row .row-tool,
+  .row .row-tool.outcome {
+    display: none;
+  }
+  /* The outcome stays visible as its droplet beside the time (its words are in the row's title). */
+  .row .row-when::before {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 6px;
+    vertical-align: middle;
+    border-radius: 50%;
+    background: var(--dot, var(--outcome-other));
+  }
+  .tool-row {
+    grid-template-columns: 1fr;
+  }
+  /* The model capsule spans the row under the status instead of leaving half the screen empty. */
+  .status-model {
+    flex: 1 1 100%;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: var(--s-4);
+  }
+  .status-model label { grid-row: 1; }
+  .status-model .select { grid-row: 1; grid-column: 2; }
+  .status-model-where { grid-column: 2; }
+  .delta-figure {
+    grid-template-columns: 1fr minmax(150px, 40%);
+  }
+  .task {
+    grid-template-columns: 96px minmax(0, 1fr);
+  }
 }
 
-.ask-form .btn {
-  flex: 0 0 auto;
+@media (max-width: 780px) {
+  .brand-state {
+    display: none;
+  }
+  .topbar {
+    gap: var(--s-2);
+  }
+}
+
+/* ---------- Reduced motion: colour and opacity still change; nothing travels ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  /* Things that travel stop travelling; colour and opacity changes keep their short fades. */
+  .nav-flow.is-ready,
+  .nav-label,
+  .nav-item .icon,
+  .switch::after,
+  .state-mark,
+  .disclosure > summary::before,
+  .row,
+  .turn {
+    transition-property: color, background-color, opacity, box-shadow !important;
+  }
+  .disclosure::details-content {
+    transition: none;
+  }
+  .nav-item:hover .icon,
+  .nav-item:active .icon,
+  .row:active,
+  .turn:active,
+  .btn:active:not(:disabled) {
+    transform: none;
+  }
+  body::before,
+  body::after,
+  .state-mark,
+  .state-mark::after,
+  .delta-svg.is-pouring,
+  .toast,
+  .droplets i,
+  .task-step.is-running::before,
+  .recorder.is-recording {
+    animation: none !important;
+  }
+  .btn::before {
+    display: none;
+  }
+  .btn:hover:not(:disabled) {
+    filter: brightness(1.12);
+  }
 }

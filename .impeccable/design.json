@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-17T21:09:49+00:00",
+  "generatedAt": "2026-11-18T06:19:20+00:00",
   "title": "Design System: Jarvis",
   "extensions": {
     "colorMeta": {
@@ -81,7 +81,7 @@
       },
       "ramp-5": {
         "role": "neutral",
-        "displayName": "Hairline",
+        "displayName": "Swell",
         "canonical": "#1f4558",
         "tonalRamp": [
           "#071722",
@@ -126,7 +126,7 @@
       },
       "ramp-8": {
         "role": "neutral",
-        "displayName": "Text Tertiary",
+        "displayName": "Text Muted",
         "canonical": "#93b4bd",
         "tonalRamp": [
           "#071722",
@@ -172,16 +172,46 @@
       "control-edge": {
         "role": "neutral",
         "displayName": "Control Edge",
-        "canonical": "#4a7686",
+        "canonical": "#517f8f",
         "tonalRamp": [
           "#0f2530",
           "#1d3c48",
           "#2c5361",
-          "#3b6573",
-          "#4a7686",
-          "#6a919f",
-          "#93b1bb",
-          "#cfe0e5"
+          "#3e6a7a",
+          "#517f8f",
+          "#6f97a5",
+          "#97b6c0",
+          "#d0e1e6"
+        ]
+      },
+      "pool-water": {
+        "role": "neutral",
+        "displayName": "Pool Water",
+        "canonical": "color-mix(in oklab, #122c3c 60%, #0e2433)",
+        "tonalRamp": [
+          "#071722",
+          "#0e2433",
+          "#122c3c",
+          "#16384a",
+          "#2d5a70",
+          "#5f8796",
+          "#93b4bd",
+          "#e8f2f4"
+        ]
+      },
+      "row-water": {
+        "role": "neutral",
+        "displayName": "Row Water",
+        "canonical": "color-mix(in oklab, #122c3c 78%, #0e2433)",
+        "tonalRamp": [
+          "#071722",
+          "#0e2433",
+          "#122c3c",
+          "#16384a",
+          "#2d5a70",
+          "#5f8796",
+          "#93b4bd",
+          "#e8f2f4"
         ]
       },
       "silt": {
@@ -233,6 +263,36 @@
         "role": "primary",
         "displayName": "On Silt",
         "canonical": "#062029",
+        "tonalRamp": [
+          "#062029",
+          "#0f3a43",
+          "#1d5c66",
+          "#2f8290",
+          "#4fa9b8",
+          "#7fd1d9",
+          "#9adde3",
+          "#d6f3f5"
+        ]
+      },
+      "silt-pool": {
+        "role": "primary",
+        "displayName": "Silt Pool",
+        "canonical": "color-mix(in oklab, #7fd1d9 13%, #122c3c)",
+        "tonalRamp": [
+          "#062029",
+          "#0f3a43",
+          "#1d5c66",
+          "#2f8290",
+          "#4fa9b8",
+          "#7fd1d9",
+          "#9adde3",
+          "#d6f3f5"
+        ]
+      },
+      "silt-pool-strong": {
+        "role": "primary",
+        "displayName": "Silt Pool Strong",
+        "canonical": "color-mix(in oklab, #7fd1d9 22%, #122c3c)",
         "tonalRamp": [
           "#062029",
           "#0f3a43",
@@ -413,7 +473,7 @@
     "typographyMeta": {
       "display": {
         "displayName": "Display",
-        "purpose": "The live status word and the latest thing you said."
+        "purpose": "The live status word and the latest thing you said (steps down to 24/19 for long sentences)."
       },
       "headline": {
         "displayName": "Headline",
@@ -421,7 +481,7 @@
       },
       "title": {
         "displayName": "Title",
-        "purpose": "Section titles, brand, earlier-turn queries, macro names; 400 for the latest reply."
+        "purpose": "Section titles, wordmark, earlier-turn queries, task titles, macro names; 400 for the latest reply and task results."
       },
       "body": {
         "displayName": "Body",
@@ -429,66 +489,164 @@
       },
       "label": {
         "displayName": "Label",
-        "purpose": "Timestamps, counts, help, field labels, tags, keycaps, fix hints. Sentence case."
+        "purpose": "Times, counts, help, field labels, tags, keycaps, fix hints. Sentence case."
       },
       "code": {
         "displayName": "Code",
-        "purpose": "Literal code, command templates and IDs only."
+        "purpose": "Commands, paths and IDs: the same face at 0.94em in a Rail Water pool. No monospace."
       }
     },
     "shadows": [
       {
-        "name": "toast-float",
-        "value": "0 8px 24px rgba(3, 12, 18, 0.5)",
-        "purpose": "The only cast shadow; the floating toast."
+        "name": "shadow-pool",
+        "value": "0 10px 28px -14px rgba(2, 10, 16, 0.75), 0 2px 6px -3px rgba(2, 10, 16, 0.5)",
+        "purpose": "Resting content pools and hovered capsule rows."
+      },
+      {
+        "name": "shadow-float",
+        "value": "0 18px 40px -16px rgba(2, 10, 16, 0.85), 0 4px 12px -6px rgba(2, 10, 16, 0.6)",
+        "purpose": "The top capsule and the toast only."
+      },
+      {
+        "name": "field-well",
+        "value": "inset 0 2px 5px rgba(2, 10, 16, 0.5), 0 0 0 1px #517f8f",
+        "purpose": "Fields, recorder; hover ring ramp-7, focus ring 2px silt."
+      },
+      {
+        "name": "ask-well",
+        "value": "inset 0 2px 6px rgba(2, 10, 16, 0.55), 0 0 0 1px #16384a",
+        "purpose": "The type-to-Jarvis capsule; focus ring 2px silt."
+      },
+      {
+        "name": "nav-well",
+        "value": "inset 0 1px 3px rgba(2, 10, 16, 0.6)",
+        "purpose": "The Deep Water destinations pill."
+      },
+      {
+        "name": "surface-light",
+        "value": "inset 0 1px 0 color-mix(in oklab, #e8f2f4 5%, transparent)",
+        "purpose": "Top lip of the top capsule (4% on the delta pool)."
+      },
+      {
+        "name": "channel-glow",
+        "value": "0 8px 18px -10px color-mix(in oklab, #7fd1d9 70%, transparent)",
+        "purpose": "Primary button; the nav indicator uses 0 6px 16px -10px at 60%."
       },
       {
         "name": "keycap-lip",
-        "value": "0 1px 0 #071722",
-        "purpose": "Physical-key underside on keycaps only."
+        "value": "0 2px 0 #071722, 0 6px 12px -8px rgba(2, 10, 16, 0.8)",
+        "purpose": "Physical-key lip on keycaps only."
       },
       {
-        "name": "input-focus-ring",
-        "value": "0 0 0 1px #7fd1d9",
-        "purpose": "Doubles the silt border on a focused field."
+        "name": "alarm-ring",
+        "value": "inset 0 0 0 1px #7a423f",
+        "purpose": "Error banner, failed bubble, error toast (amber-edge #6e5c34 for warn and waiting)."
+      },
+      {
+        "name": "overlay-surface",
+        "value": "inset 0 0 0 1px #1f4558, 0 0 0 1px rgba(3, 12, 18, 0.7)",
+        "purpose": "Opaque overlay windows; no cast shadow because the window bounds clip it."
       }
     ],
     "motion": [
       {
         "name": "ease-out",
         "value": "cubic-bezier(0.16, 1, 0.3, 1)",
-        "purpose": "The one curve for every transition and animation."
+        "purpose": "Arrivals and state changes."
       },
       {
-        "name": "state",
+        "name": "ease-flow",
+        "value": "linear(0, 0.012 1.4%, 0.054 3%, 0.21 6.6%, 0.43 10.6%, 0.63 14.8%, 0.79 19.4%, 0.9 24.3%, 0.97 30%, 1.012 36.4%, 1.026 43.5%, 1.02 52%, 1.006 64%, 1)",
+        "purpose": "Spring for things that settle: switch knob, toast, nav indicator, icon nudges, row press."
+      },
+      {
+        "name": "ease-in",
+        "value": "cubic-bezier(0.55, 0, 0.75, 0.2)",
+        "purpose": "Declared for exits."
+      },
+      {
+        "name": "t-quick",
         "value": "160ms",
-        "purpose": "Colour, background and border state changes; disclosure chevron."
+        "purpose": "Colour and hover."
+      },
+      {
+        "name": "t-state",
+        "value": "260ms",
+        "purpose": "State changes, droplet colour, row swell."
+      },
+      {
+        "name": "t-arrive",
+        "value": "460ms",
+        "purpose": "flowIn arrivals, nav label opening, disclosure pour."
+      },
+      {
+        "name": "button-fill",
+        "value": "420ms ease-out",
+        "purpose": "Curved liquid surface rising inside a button on hover."
       },
       {
         "name": "switch",
-        "value": "180ms",
-        "purpose": "Switch track and knob."
+        "value": "420ms ease-flow",
+        "purpose": "Switch knob travel."
+      },
+      {
+        "name": "nav-flow",
+        "value": "560ms cubic-bezier(0.22, 1, 0.36, 1), WAAPI stretch across old and new tab at 42%",
+        "purpose": "The liquid tab indicator."
       },
       {
         "name": "toast-in",
-        "value": "220ms",
-        "purpose": "Toast rises 8px and fades in."
+        "value": "520ms ease-flow, from translateY(14px) scale(0.92)",
+        "purpose": "Toast floats up and settles."
+      },
+      {
+        "name": "flow-in",
+        "value": "460ms ease-out, translateY(10px) scale(0.985) blur(6px) to rest, stagger 40ms capped at 240ms",
+        "purpose": "Arrivals of page content and the latest exchange."
+      },
+      {
+        "name": "current",
+        "value": "70s and 95s ease-in-out alternate",
+        "purpose": "Ambient radial layers under the page; paused when hidden."
       },
       {
         "name": "delta-draw",
-        "value": "900ms, stagger 70ms from 120ms",
-        "purpose": "Channels draw once on render; failed channel never animates."
+        "value": "900ms ease-out, stagger 70ms from 120ms",
+        "purpose": "Channels draw on render; failed never animates."
+      },
+      {
+        "name": "delta-droplets",
+        "value": "9000ms travel; pulse 1700ms cubic ease-out",
+        "purpose": "Canvas droplets down each channel; one brighter droplet per new request."
+      },
+      {
+        "name": "voice-droplet",
+        "value": "waves k=1,2 (mass) and k=3,5,7 (lobes, grow with mic); half-width 92-250px from content, stretch 0.3/frame, settle 0.1/frame; rings 1.6s cubic ease-out, max 6, one per voice onset or every 0.95s while speaking",
+        "purpose": "Voice pill overlay only; frozen with no rings under reduced motion. Never on interactive dashboard surfaces."
+      },
+      {
+        "name": "droplet-states",
+        "value": "breathe 4.8s, ripple 1.4s, swirl 1.6s linear, step ripple 1.6s",
+        "purpose": "State droplet and running task step."
       },
       {
         "name": "reduced-motion",
-        "value": "transitions 0ms; delta draw and toast entrance removed",
+        "value": "colour/opacity/shadow fades kept; travel, ambient loops and fills removed; flowIn becomes a 200ms fade",
         "purpose": "prefers-reduced-motion: reduce."
       }
     ],
     "breakpoints": [
       {
+        "name": "labels-collapse",
+        "value": "1000px"
+      },
+      {
         "name": "narrow",
         "value": "860px"
+      },
+      {
+        "name": "compact-topbar",
+        "value": "780px"
       },
       {
         "name": "window-min",
@@ -501,98 +659,115 @@
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Silt-filled commit action; one per form.",
+      "description": "Silt capsule; lighter water rises on hover. One per form.",
       "html": "<button class=\"ds-btn ds-btn-primary\">Save command</button>",
-      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-btn{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:8px 16px;border:1px solid transparent;border-radius:8px;font:700 0.9375rem/1.55 var(--font);cursor:pointer;transition:background-color 160ms var(--ease-out),border-color 160ms var(--ease-out),color 160ms var(--ease-out)}.ds-btn:focus-visible{outline:2px solid var(--silt);outline-offset:2px}.ds-btn-primary{background:var(--silt);color:var(--on-silt)}.ds-btn-primary:hover{background:var(--silt-hover)}"
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--control-edge:#517f8f;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--silt-pool:color-mix(in oklab,#7fd1d9 13%,#122c3c);--silt-pool-strong:color-mix(in oklab,#7fd1d9 22%,#122c3c);--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--amber-text:#f1cf8a;--amber-ground:#2c2a26;--amber-edge:#6e5c34;--shadow-pool:0 10px 28px -14px rgba(2,10,16,.75),0 2px 6px -3px rgba(2,10,16,.5);--shadow-float:0 18px 40px -16px rgba(2,10,16,.85),0 4px 12px -6px rgba(2,10,16,.6);--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif;font-family:var(--font)}.ds-btn{position:relative;isolation:isolate;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:8px 24px;border:0;border-radius:999px;font:700 .9375rem/1.55 var(--font);cursor:pointer;transition:transform 160ms var(--ease-out),color 160ms var(--ease-out)}.ds-btn::before{content:'';position:absolute;z-index:-1;left:-20%;right:-20%;top:0;height:140%;border-radius:45% 45% 0 0;background:var(--fill);transform:translateY(105%);transition:transform 420ms var(--ease-out)}.ds-btn:hover::before{transform:translateY(8%)}.ds-btn:active{transform:scale(.97)}.ds-btn:focus-visible{outline:2px solid var(--silt);outline-offset:3px}.ds-btn-primary{--fill:var(--silt-hover);background:var(--silt);color:var(--on-silt);box-shadow:0 8px 18px -10px color-mix(in oklab,var(--silt) 70%,transparent)}"
     },
     {
       "name": "Secondary Button",
       "kind": "button",
       "refersTo": "button-secondary",
-      "description": "Control-water button for non-committing actions.",
+      "description": "Control-water capsule with no ring; ramp-5 rises on hover.",
       "html": "<button class=\"ds-btn ds-btn-secondary\">Back to editing</button>",
-      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-btn{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:8px 16px;border:1px solid transparent;border-radius:8px;font:700 0.9375rem/1.55 var(--font);cursor:pointer;transition:background-color 160ms var(--ease-out),border-color 160ms var(--ease-out),color 160ms var(--ease-out)}.ds-btn:focus-visible{outline:2px solid var(--silt);outline-offset:2px}.ds-btn-secondary{background:var(--ramp-4);border-color:var(--ramp-6);color:var(--ramp-10)}.ds-btn-secondary:hover{background:var(--ramp-5)}"
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--control-edge:#517f8f;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--silt-pool:color-mix(in oklab,#7fd1d9 13%,#122c3c);--silt-pool-strong:color-mix(in oklab,#7fd1d9 22%,#122c3c);--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--amber-text:#f1cf8a;--amber-ground:#2c2a26;--amber-edge:#6e5c34;--shadow-pool:0 10px 28px -14px rgba(2,10,16,.75),0 2px 6px -3px rgba(2,10,16,.5);--shadow-float:0 18px 40px -16px rgba(2,10,16,.85),0 4px 12px -6px rgba(2,10,16,.6);--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif;font-family:var(--font)}.ds-btn{position:relative;isolation:isolate;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:8px 24px;border:0;border-radius:999px;font:700 .9375rem/1.55 var(--font);cursor:pointer;transition:transform 160ms var(--ease-out),color 160ms var(--ease-out)}.ds-btn::before{content:'';position:absolute;z-index:-1;left:-20%;right:-20%;top:0;height:140%;border-radius:45% 45% 0 0;background:var(--fill);transform:translateY(105%);transition:transform 420ms var(--ease-out)}.ds-btn:hover::before{transform:translateY(8%)}.ds-btn:active{transform:scale(.97)}.ds-btn:focus-visible{outline:2px solid var(--silt);outline-offset:3px}.ds-btn-secondary{--fill:var(--ramp-5);background:var(--ramp-4);color:var(--ramp-10)}"
     },
     {
       "name": "Quiet Button",
       "kind": "button",
       "refersTo": "button-quiet",
-      "description": "Unfilled small action for Delete and Retry; hover turns coral.",
+      "description": "Unfilled small capsule for Delete and Retry; hover fills raised water and turns coral.",
       "html": "<button class=\"ds-btn ds-btn-quiet\">Delete</button>",
-      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-btn{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:8px 16px;border:1px solid transparent;border-radius:8px;font:700 0.9375rem/1.55 var(--font);cursor:pointer;transition:background-color 160ms var(--ease-out),border-color 160ms var(--ease-out),color 160ms var(--ease-out)}.ds-btn:focus-visible{outline:2px solid var(--silt);outline-offset:2px}.ds-btn-quiet{background:transparent;color:var(--ramp-9);min-height:30px;padding:4px 12px;font-size:0.8125rem}.ds-btn-quiet:hover{background:var(--ramp-3);color:var(--coral-text)}"
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--control-edge:#517f8f;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--silt-pool:color-mix(in oklab,#7fd1d9 13%,#122c3c);--silt-pool-strong:color-mix(in oklab,#7fd1d9 22%,#122c3c);--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--amber-text:#f1cf8a;--amber-ground:#2c2a26;--amber-edge:#6e5c34;--shadow-pool:0 10px 28px -14px rgba(2,10,16,.75),0 2px 6px -3px rgba(2,10,16,.5);--shadow-float:0 18px 40px -16px rgba(2,10,16,.85),0 4px 12px -6px rgba(2,10,16,.6);--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif;font-family:var(--font)}.ds-btn{position:relative;isolation:isolate;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:8px 24px;border:0;border-radius:999px;font:700 .9375rem/1.55 var(--font);cursor:pointer;transition:transform 160ms var(--ease-out),color 160ms var(--ease-out)}.ds-btn::before{content:'';position:absolute;z-index:-1;left:-20%;right:-20%;top:0;height:140%;border-radius:45% 45% 0 0;background:var(--fill);transform:translateY(105%);transition:transform 420ms var(--ease-out)}.ds-btn:hover::before{transform:translateY(8%)}.ds-btn:active{transform:scale(.97)}.ds-btn:focus-visible{outline:2px solid var(--silt);outline-offset:3px}.ds-btn-quiet{--fill:var(--ramp-3);background:transparent;color:var(--ramp-9);min-height:32px;padding:4px 16px;font-size:.8125rem}.ds-btn-quiet:hover{color:var(--coral-text)}"
     },
     {
       "name": "Text Field",
       "kind": "input",
       "refersTo": "input",
-      "description": "Rail-water field with a contrast-floor border; silt on focus.",
+      "description": "Rail-water well with the control-edge ring; 2px silt on focus.",
       "html": "<label class=\"ds-field\"><span>Command name</span><input class=\"ds-input\" placeholder=\"Open my notes\"></label>",
-      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-field{display:flex;flex-direction:column;gap:4px;font:0.9375rem/1.55 var(--font);color:var(--ramp-10)}.ds-field span{font-size:0.8125rem;font-weight:700;color:var(--ramp-9)}.ds-input{min-height:38px;padding:8px 12px;background:var(--ramp-1);border:1px solid var(--control-edge);border-radius:8px;color:var(--ramp-10);font:inherit;transition:border-color 160ms var(--ease-out)}.ds-input::placeholder{color:var(--ramp-8)}.ds-input:hover{border-color:var(--ramp-7)}.ds-input:focus{outline:none;border-color:var(--silt);box-shadow:0 0 0 1px var(--silt)}"
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--control-edge:#517f8f;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--silt-pool:color-mix(in oklab,#7fd1d9 13%,#122c3c);--silt-pool-strong:color-mix(in oklab,#7fd1d9 22%,#122c3c);--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--amber-text:#f1cf8a;--amber-ground:#2c2a26;--amber-edge:#6e5c34;--shadow-pool:0 10px 28px -14px rgba(2,10,16,.75),0 2px 6px -3px rgba(2,10,16,.5);--shadow-float:0 18px 40px -16px rgba(2,10,16,.85),0 4px 12px -6px rgba(2,10,16,.6);--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif;font-family:var(--font)}.ds-field{display:flex;flex-direction:column;gap:8px;font:.9375rem/1.55 var(--font);color:var(--ramp-10)}.ds-field span{font-size:.8125rem;font-weight:700;color:var(--ramp-9)}.ds-input{min-height:42px;padding:8px 16px;background:var(--ramp-1);border:0;border-radius:14px;box-shadow:inset 0 2px 5px rgba(2,10,16,.5),0 0 0 1px var(--control-edge);color:var(--ramp-10);font:inherit;transition:box-shadow 160ms var(--ease-out)}.ds-input::placeholder{color:var(--ramp-8)}.ds-input:hover{box-shadow:inset 0 2px 5px rgba(2,10,16,.5),0 0 0 1px var(--ramp-7)}.ds-input:focus{outline:none;box-shadow:inset 0 2px 5px rgba(2,10,16,.5),0 0 0 2px var(--silt)}"
     },
     {
-      "name": "Sidebar Navigation",
+      "name": "Ask Capsule",
+      "kind": "input",
+      "refersTo": "ask-capsule",
+      "description": "Type to Jarvis: a long pill well with the send droplet inside.",
+      "html": "<form class=\"ds-ask\"><input placeholder=\"Ask Jarvis something\"><button type=\"button\" class=\"ds-btn ds-btn-primary\">Send</button></form>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--control-edge:#517f8f;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--silt-pool:color-mix(in oklab,#7fd1d9 13%,#122c3c);--silt-pool-strong:color-mix(in oklab,#7fd1d9 22%,#122c3c);--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--amber-text:#f1cf8a;--amber-ground:#2c2a26;--amber-edge:#6e5c34;--shadow-pool:0 10px 28px -14px rgba(2,10,16,.75),0 2px 6px -3px rgba(2,10,16,.5);--shadow-float:0 18px 40px -16px rgba(2,10,16,.85),0 4px 12px -6px rgba(2,10,16,.6);--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif;font-family:var(--font)}.ds-btn{position:relative;isolation:isolate;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:8px 24px;border:0;border-radius:999px;font:700 .9375rem/1.55 var(--font);cursor:pointer;transition:transform 160ms var(--ease-out),color 160ms var(--ease-out)}.ds-btn::before{content:'';position:absolute;z-index:-1;left:-20%;right:-20%;top:0;height:140%;border-radius:45% 45% 0 0;background:var(--fill);transform:translateY(105%);transition:transform 420ms var(--ease-out)}.ds-btn:hover::before{transform:translateY(8%)}.ds-btn:active{transform:scale(.97)}.ds-btn:focus-visible{outline:2px solid var(--silt);outline-offset:3px}.ds-btn-primary{--fill:var(--silt-hover);background:var(--silt);color:var(--on-silt);min-height:44px}.ds-ask{display:flex;align-items:center;gap:8px;padding:4px 4px 4px 24px;border-radius:999px;background:var(--ramp-1);box-shadow:inset 0 2px 6px rgba(2,10,16,.55),0 0 0 1px var(--ramp-4);transition:box-shadow 260ms var(--ease-out)}.ds-ask:focus-within{box-shadow:inset 0 2px 6px rgba(2,10,16,.55),0 0 0 2px var(--silt)}.ds-ask input{flex:1;min-width:0;min-height:44px;border:0;background:transparent;color:var(--ramp-10);font:.9375rem var(--font);outline:none}.ds-ask input::placeholder{color:var(--ramp-8)}"
+    },
+    {
+      "name": "Top Capsule Navigation",
       "kind": "nav",
-      "refersTo": "nav-item",
-      "description": "Rail items with stroke icons; active is control water with a silt icon.",
-      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item is-active\" href=\"#\"><svg viewBox=\"0 0 24 24\"><path d=\"M3 12h4l3-8 4 16 3-8h4\"/></svg>Overview</a><a class=\"ds-nav-item\" href=\"#\"><svg viewBox=\"0 0 24 24\"><path d=\"M4 5h16v11H8l-4 4z\"/></svg>Conversations</a></nav>",
-      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-nav{display:flex;flex-direction:column;gap:2px;width:176px;padding:12px;background:var(--ramp-1);font:0.9375rem/1.55 var(--font)}.ds-nav-item{display:flex;align-items:center;gap:12px;min-height:36px;padding:8px 8px 8px 12px;border-radius:8px;color:var(--ramp-9);text-decoration:none;transition:background-color 160ms var(--ease-out),color 160ms var(--ease-out)}.ds-nav-item svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.ds-nav-item:hover{background:var(--ramp-3);color:var(--ramp-10)}.ds-nav-item.is-active{background:var(--ramp-4);color:var(--ramp-10);font-weight:700}.ds-nav-item.is-active svg{stroke:var(--silt)}.ds-nav-item:focus-visible{outline:2px solid var(--silt);outline-offset:2px}"
+      "refersTo": "nav-pill",
+      "description": "Floating capsule: wordmark, state droplet, six destinations in a pill with a silt-pool indicator under the chosen one.",
+      "html": "<header class=\"ds-top\"><span class=\"ds-brand\"><b>Jarvis</b><i class=\"ds-drop\"></i><small>Ready</small></span><nav class=\"ds-nav\"><span class=\"ds-flow\"></span><a class=\"ds-item is-active\" href=\"#\"><svg viewBox=\"0 0 24 24\"><path d=\"M3 12h4l3-8 4 16 3-8h4\"/></svg>Overview</a><a class=\"ds-item\" href=\"#\"><svg viewBox=\"0 0 24 24\"><path d=\"M4 5h16v11H8l-4 4z\"/></svg>Conversations</a><a class=\"ds-item\" href=\"#\"><svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M12 3v3M12 18v3M3 12h3M18 12h3\"/></svg>Settings</a></nav></header>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--control-edge:#517f8f;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--silt-pool:color-mix(in oklab,#7fd1d9 13%,#122c3c);--silt-pool-strong:color-mix(in oklab,#7fd1d9 22%,#122c3c);--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--amber-text:#f1cf8a;--amber-ground:#2c2a26;--amber-edge:#6e5c34;--shadow-pool:0 10px 28px -14px rgba(2,10,16,.75),0 2px 6px -3px rgba(2,10,16,.5);--shadow-float:0 18px 40px -16px rgba(2,10,16,.85),0 4px 12px -6px rgba(2,10,16,.6);--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif;font-family:var(--font)}.ds-top{display:flex;align-items:center;gap:16px;padding:8px 8px 8px 16px;border-radius:999px;background:var(--ramp-1);box-shadow:var(--shadow-float),inset 0 1px 0 color-mix(in oklab,var(--ramp-10) 5%,transparent);color:var(--ramp-10);font:.9375rem/1.55 var(--font)}.ds-brand{display:flex;align-items:center;gap:8px}.ds-brand b{font-size:1.1875rem;letter-spacing:-.01em}.ds-brand small{font-size:.8125rem;color:var(--ramp-9)}.ds-drop{width:12px;height:12px;border-radius:50%;background:var(--sage)}.ds-nav{position:relative;display:flex;gap:2px;margin-left:auto;padding:4px;border-radius:999px;background:var(--ramp-0);box-shadow:inset 0 1px 3px rgba(2,10,16,.6)}.ds-flow{position:absolute;top:4px;bottom:4px;left:4px;width:118px;border-radius:999px;background:linear-gradient(180deg,var(--silt-pool-strong),var(--silt-pool));box-shadow:0 6px 16px -10px color-mix(in oklab,var(--silt) 60%,transparent),inset 0 1px 0 color-mix(in oklab,var(--silt) 30%,transparent)}.ds-item{position:relative;display:flex;align-items:center;gap:8px;min-height:36px;padding:0 12px;border-radius:999px;color:var(--ramp-9);text-decoration:none;white-space:nowrap;transition:color 160ms var(--ease-out)}.ds-item:hover{color:var(--ramp-10)}.ds-item.is-active{color:var(--ramp-10);font-weight:700}.ds-item:focus-visible{outline:2px solid var(--silt);outline-offset:3px}.ds-item svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.ds-item.is-active svg{stroke:var(--silt)}"
     },
     {
-      "name": "Keycaps",
+      "name": "Capsule Row",
+      "kind": "card",
+      "refersTo": "capsule-row",
+      "description": "Rows, turns, commands, macros and rules: row-water capsules that swell on hover; outcome droplet beside its label.",
+      "html": "<ul class=\"ds-rows\"><li class=\"ds-row\" tabindex=\"0\"><b>“Turn it down a bit”</b><span>Volume set to 40%.</span><span class=\"ds-out\" style=\"--dot:#5fbac6\">volume &amp; media</span></li><li class=\"ds-row is-failed\" tabindex=\"0\"><b>“Open my notes”</b><span>I couldn’t find that app.</span><span class=\"ds-out\" style=\"--dot:#e0786a\">failed</span></li></ul>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--control-edge:#517f8f;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--silt-pool:color-mix(in oklab,#7fd1d9 13%,#122c3c);--silt-pool-strong:color-mix(in oklab,#7fd1d9 22%,#122c3c);--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--amber-text:#f1cf8a;--amber-ground:#2c2a26;--amber-edge:#6e5c34;--shadow-pool:0 10px 28px -14px rgba(2,10,16,.75),0 2px 6px -3px rgba(2,10,16,.5);--shadow-float:0 18px 40px -16px rgba(2,10,16,.85),0 4px 12px -6px rgba(2,10,16,.6);--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif;font-family:var(--font)}.ds-rows{display:flex;flex-direction:column;gap:8px;margin:0;padding:0;list-style:none;font:.9375rem/1.55 var(--font);color:var(--ramp-10)}.ds-row{display:grid;grid-template-columns:1fr 1.2fr 128px;gap:16px;align-items:baseline;padding:12px 16px;border-radius:22px;background:color-mix(in oklab,var(--ramp-3) 78%,var(--ramp-2));transition:background-color 260ms var(--ease-out),box-shadow 260ms var(--ease-out)}.ds-row:hover,.ds-row:focus-visible{background:var(--ramp-4);box-shadow:var(--shadow-pool);outline:none}.ds-row span{color:var(--ramp-9)}.ds-row.is-failed{background:color-mix(in oklab,var(--coral-ground) 80%,var(--ramp-2))}.ds-row.is-failed span:nth-child(2){color:var(--coral-text)}.ds-out{font-size:.8125rem;text-align:right}.ds-out::before{content:'';display:inline-block;width:8px;height:8px;margin-right:6px;vertical-align:middle;border-radius:50%;background:var(--dot)}"
+    },
+    {
+      "name": "Latest Exchange Bubbles",
       "kind": "custom",
-      "refersTo": "keycap",
-      "description": "The talk shortcut, always rendered as physical keys.",
-      "html": "<span class=\"ds-keys\"><kbd class=\"ds-key\">Super</kbd><span class=\"ds-plus\">+</span><kbd class=\"ds-key\">Space</kbd></span>",
-      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-keys{display:inline-flex;align-items:center;gap:4px;font-family:var(--font)}.ds-key{min-width:26px;padding:1px 8px;background:var(--ramp-4);border:1px solid var(--ramp-6);border-radius:5px;box-shadow:0 1px 0 var(--ramp-0);font:700 0.8125rem/1.6 var(--font);color:var(--ramp-10);text-align:center}.ds-plus{font-size:0.8125rem;color:var(--ramp-8)}"
+      "refersTo": "bubble-you",
+      "description": "Your words silt-lit on the right, Jarvis's reply in raised water on the left, corners pointing at each other.",
+      "html": "<div class=\"ds-ex\"><div class=\"ds-b ds-you\"><small>2 min ago</small><q>Set a timer for ten minutes</q></div><div class=\"ds-b ds-jar\"><p>Timer set for 10 minutes.</p></div></div>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--control-edge:#517f8f;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--silt-pool:color-mix(in oklab,#7fd1d9 13%,#122c3c);--silt-pool-strong:color-mix(in oklab,#7fd1d9 22%,#122c3c);--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--amber-text:#f1cf8a;--amber-ground:#2c2a26;--amber-edge:#6e5c34;--shadow-pool:0 10px 28px -14px rgba(2,10,16,.75),0 2px 6px -3px rgba(2,10,16,.5);--shadow-float:0 18px 40px -16px rgba(2,10,16,.85),0 4px 12px -6px rgba(2,10,16,.6);--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif;font-family:var(--font)}.ds-ex{display:flex;flex-direction:column;gap:8px;font:.9375rem/1.55 var(--font);color:var(--ramp-10)}.ds-b{display:flex;flex-direction:column;gap:4px;max-width:88%;padding:16px 24px;border-radius:22px;box-shadow:var(--shadow-pool)}.ds-you{align-self:flex-end;border-bottom-right-radius:8px;background:linear-gradient(160deg,var(--silt-pool-strong),var(--silt-pool))}.ds-you small{font-size:.8125rem;color:var(--ramp-9)}.ds-you q{font-size:1.5rem;font-weight:700;line-height:1.2;letter-spacing:-.01em;quotes:'“' '”'}.ds-jar{align-self:flex-start;border-top-left-radius:8px;background:var(--ramp-3)}.ds-jar p{margin:0;font-size:1.1875rem}"
     },
     {
       "name": "Tags",
       "kind": "chip",
       "refersTo": "tag",
-      "description": "Outline pills for risk and provenance.",
-      "html": "<span class=\"ds-tags\"><span class=\"ds-tag ds-tag-safe\">Safe</span><span class=\"ds-tag ds-tag-high\">High risk</span><span class=\"ds-tag ds-tag-learned\">Learned</span></span>",
-      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-tags{display:inline-flex;gap:8px;font-family:var(--font)}.ds-tag{display:inline-flex;padding:0 8px;border:1px solid var(--ramp-6);border-radius:999px;font-size:0.8125rem;line-height:1.6;color:var(--ramp-9)}.ds-tag-safe{border-color:var(--sage-deep);color:var(--sage)}.ds-tag-high{border-color:var(--coral-edge);color:var(--coral-text)}.ds-tag-learned{border-color:var(--silt-deep);color:var(--silt)}"
+      "description": "Filled pills for risk and provenance; Critical adds a coral ring and bold.",
+      "html": "<span class=\"ds-tags\"><span class=\"ds-tag ds-safe\">Safe risk</span><span class=\"ds-tag ds-med\">Medium risk</span><span class=\"ds-tag ds-high\">High risk</span><span class=\"ds-tag ds-learned\">Learned</span></span>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--control-edge:#517f8f;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--silt-pool:color-mix(in oklab,#7fd1d9 13%,#122c3c);--silt-pool-strong:color-mix(in oklab,#7fd1d9 22%,#122c3c);--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--amber-text:#f1cf8a;--amber-ground:#2c2a26;--amber-edge:#6e5c34;--shadow-pool:0 10px 28px -14px rgba(2,10,16,.75),0 2px 6px -3px rgba(2,10,16,.5);--shadow-float:0 18px 40px -16px rgba(2,10,16,.85),0 4px 12px -6px rgba(2,10,16,.6);--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif;font-family:var(--font)}.ds-tags{display:inline-flex;flex-wrap:wrap;gap:8px;font-family:var(--font)}.ds-tag{display:inline-flex;padding:1px 12px;border-radius:999px;background:var(--ramp-4);font-size:.8125rem;line-height:1.6;color:var(--ramp-10)}.ds-safe{background:color-mix(in oklab,var(--sage) 16%,var(--ramp-2));color:var(--sage)}.ds-med{background:var(--amber-ground);color:var(--amber-text)}.ds-high{background:var(--coral-ground);color:var(--coral-text)}.ds-learned{background:color-mix(in oklab,var(--silt) 18%,var(--ramp-2));color:var(--silt)}"
     },
     {
-      "name": "Error Banner",
+      "name": "Task Pool",
       "kind": "custom",
-      "refersTo": "banner-error",
-      "description": "A failure that carries its fix as in-place actions.",
-      "html": "<div class=\"ds-banner\"><p><strong>Can't reach the model.</strong> Ollama isn't running.</p><button class=\"ds-b2\">Switch model</button><button class=\"ds-b3\">Retry</button></div>",
-      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-banner{display:flex;align-items:center;gap:12px;padding:8px 8px 8px 16px;background:var(--coral-ground);border:1px solid var(--coral-edge);border-radius:8px;color:var(--coral-text);font:0.9375rem/1.55 var(--font)}.ds-banner p{flex:1;margin:0}.ds-banner strong{color:var(--ramp-10)}.ds-banner button{min-height:30px;padding:4px 12px;border:1px solid transparent;border-radius:8px;font:700 0.8125rem var(--font);cursor:pointer;transition:background-color 160ms var(--ease-out)}.ds-b2{background:transparent;border-color:var(--coral-edge)!important;color:var(--ramp-10)}.ds-b2:hover{background:var(--coral-edge)}.ds-b3{background:transparent;color:var(--coral-text)}.ds-b3:hover{background:var(--ramp-3)}"
-    },
-    {
-      "name": "Undo Toast",
-      "kind": "custom",
-      "refersTo": "toast",
-      "description": "The only floating element; reversible deletes offer Undo for 6s.",
-      "html": "<div class=\"ds-toast\"><span>Deleted Morning macro.</span><button>Undo</button></div>",
-      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-toast{display:flex;align-items:center;gap:16px;max-width:440px;padding:12px 12px 12px 16px;background:var(--ramp-4);border:1px solid var(--ramp-6);border-radius:8px;box-shadow:0 8px 24px rgba(3,12,18,0.5);color:var(--ramp-10);font:0.9375rem/1.55 var(--font)}.ds-toast span{flex:1}.ds-toast button{min-height:30px;padding:0 12px;border:1px solid var(--silt);border-radius:5px;background:transparent;color:var(--silt);font:700 0.9375rem var(--font);cursor:pointer}.ds-toast button:hover{background:var(--ramp-5)}"
+      "refersTo": "task",
+      "description": "A background task as a pool; steps are droplets, the running one ripples; waiting turns the whole pool amber.",
+      "html": "<div class=\"ds-task is-waiting\"><div class=\"ds-st\"><b>Waiting</b><span>0:42</span></div><div><strong>Clean up the downloads folder</strong><ol><li class=\"done\">Listed 214 files</li><li class=\"run\">Delete 37 installers</li></ol><p class=\"ds-ask-ok\">Needs your OK</p></div></div>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--control-edge:#517f8f;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--silt-pool:color-mix(in oklab,#7fd1d9 13%,#122c3c);--silt-pool-strong:color-mix(in oklab,#7fd1d9 22%,#122c3c);--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--amber-text:#f1cf8a;--amber-ground:#2c2a26;--amber-edge:#6e5c34;--shadow-pool:0 10px 28px -14px rgba(2,10,16,.75),0 2px 6px -3px rgba(2,10,16,.5);--shadow-float:0 18px 40px -16px rgba(2,10,16,.85),0 4px 12px -6px rgba(2,10,16,.6);--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif;font-family:var(--font)}.ds-task{display:grid;grid-template-columns:112px 1fr;gap:4px 16px;padding:16px 24px;border-radius:22px;background:var(--ramp-3);box-shadow:var(--shadow-pool);font:.9375rem/1.55 var(--font);color:var(--ramp-10)}.ds-task.is-waiting{background:linear-gradient(160deg,color-mix(in oklab,var(--amber-text) 10%,var(--amber-ground)),var(--amber-ground));box-shadow:inset 0 0 0 1px var(--amber-edge),var(--shadow-pool)}.ds-st{display:flex;flex-direction:column;font-size:.8125rem;color:var(--ramp-9);font-variant-numeric:tabular-nums}.ds-st b{color:var(--amber-text)}.ds-task strong{font-size:1.1875rem}.ds-task ol{display:grid;gap:4px;margin:4px 0 0;padding:0;list-style:none}.ds-task li{display:flex;align-items:baseline;gap:8px;color:var(--ramp-9)}.ds-task li::before{content:'';flex:none;width:8px;height:8px;border-radius:50%;background:var(--sage-deep)}.ds-task li.run{color:var(--ramp-10)}.ds-task li.run::before{background:var(--silt);animation:ds-rip 1.6s var(--ease-out) infinite}@keyframes ds-rip{from{box-shadow:0 0 0 0 color-mix(in oklab,var(--silt) 55%,transparent)}to{box-shadow:0 0 0 8px transparent}}.ds-ask-ok{margin:8px 0 0;color:var(--amber-text);font-weight:700}@media (prefers-reduced-motion:reduce){.ds-task li.run::before{animation:none}}"
     },
     {
       "name": "Delta",
       "kind": "custom",
       "refersTo": "delta",
-      "description": "Signature: one square-sourced trunk branching into share-sized, butt-capped outcome channels; failed is coral dashed; mouths filter Conversations.",
-      "html": "<figure class=\"ds-delta\"><svg viewBox=\"0 0 600 120\" preserveAspectRatio=\"none\"><rect class=\"t\" x=\"0\" y=\"47\" width=\"210\" height=\"26\" rx=\"3\"/><path d=\"M209 53 C330 53 360 8 600 8\" stroke=\"#7fd1d9\" stroke-width=\"12\"/><path d=\"M209 64.5 C330 64.5 360 43 600 43\" stroke=\"#5fbac6\" stroke-width=\"7\"/><path d=\"M209 70 C330 70 360 78 600 78\" stroke=\"#9fbfb1\" stroke-width=\"4\"/><path class=\"f\" d=\"M209 72 C330 72 360 112 600 112\" stroke-width=\"3\"/></svg><ul><li style=\"top:7%\"><button><b>12</b>replies</button></li><li style=\"top:36%\"><button><b>7</b>volume &amp; media</button></li><li style=\"top:65%\"><button><b>4</b>timers &amp; focus</button></li><li style=\"top:93%\"><button class=\"is-failed\"><b>3</b>failed</button></li></ul></figure>",
-      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--control-edge:#4a7686;--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif}.ds-delta{display:grid;grid-template-columns:1fr 170px;margin:0;font:0.8125rem/1.55 var(--font)}.ds-delta svg{width:100%;height:108px;overflow:visible}.ds-delta path{fill:none;stroke-linecap:butt}.ds-delta .t{fill:var(--silt)}.ds-delta .f{stroke:var(--coral);stroke-dasharray:2 7}.ds-delta ul{position:relative;height:108px;margin:0;padding:0;list-style:none}.ds-delta li{position:absolute;left:0;right:0;transform:translateY(-50%)}.ds-delta button{display:flex;gap:8px;align-items:baseline;width:100%;padding:2px 8px;border:0;border-radius:5px;background:transparent;color:var(--ramp-9);font:inherit;text-align:left;cursor:pointer;transition:background-color 160ms var(--ease-out),color 160ms var(--ease-out)}.ds-delta button:hover,.ds-delta button:focus-visible{background:var(--ramp-3);color:var(--ramp-10)}.ds-delta b{min-width:2.2ch;font-size:0.9375rem;color:var(--ramp-10);font-variant-numeric:tabular-nums;text-align:right}.ds-delta .is-failed,.ds-delta .is-failed b{color:var(--coral-text)}"
+      "description": "Signature: one body of water; filled ribbons share a rounded silt source and peel away to round-capped mouths, with waves rolling downstream; failed is a thin coral ribbon; mouths filter Conversations.",
+      "html": "<figure class=\"ds-delta\"><svg viewBox=\"0 0 600 120\" preserveAspectRatio=\"none\"><path class=\"t\" d=\"M7 53 C115 53 157 47 210 47 L210 73 C157 73 115 67 7 67 A7 7 0 0 1 7 53 Z\"/><path d=\"M209 53 C330 53 360 8 600 8\" stroke=\"#7fd1d9\" stroke-width=\"12\"/><path d=\"M209 64.5 C330 64.5 360 43 600 43\" stroke=\"#5fbac6\" stroke-width=\"7\"/><path d=\"M209 70 C330 70 360 78 600 78\" stroke=\"#9fbfb1\" stroke-width=\"4\"/><path class=\"f\" d=\"M209 72 C330 72 360 112 600 112\" stroke-width=\"3\"/></svg><ul><li style=\"top:7%\"><button><b>12</b>replies</button></li><li style=\"top:36%\"><button><b>7</b>volume &amp; media</button></li><li style=\"top:65%\"><button><b>4</b>timers &amp; focus</button></li><li style=\"top:93%\"><button class=\"is-failed\"><b>3</b>failed</button></li></ul></figure>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--control-edge:#517f8f;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--silt-pool:color-mix(in oklab,#7fd1d9 13%,#122c3c);--silt-pool-strong:color-mix(in oklab,#7fd1d9 22%,#122c3c);--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--amber-text:#f1cf8a;--amber-ground:#2c2a26;--amber-edge:#6e5c34;--shadow-pool:0 10px 28px -14px rgba(2,10,16,.75),0 2px 6px -3px rgba(2,10,16,.5);--shadow-float:0 18px 40px -16px rgba(2,10,16,.85),0 4px 12px -6px rgba(2,10,16,.6);--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif;font-family:var(--font)}.ds-delta{display:grid;grid-template-columns:1fr 170px;margin:0;padding:16px 24px 12px;border-radius:22px;background:linear-gradient(180deg,color-mix(in oklab,var(--ramp-1) 70%,var(--ramp-2)),var(--ramp-1));box-shadow:inset 0 1px 0 color-mix(in oklab,var(--ramp-10) 4%,transparent),var(--shadow-pool);font:.8125rem/1.55 var(--font)}.ds-delta svg{width:100%;height:108px;overflow:visible}.ds-delta path{fill:none;stroke-linecap:butt}.ds-delta .t{fill:var(--silt)}.ds-delta .f{stroke:var(--coral);stroke-dasharray:2 7}.ds-delta ul{position:relative;height:108px;margin:0;padding:0;list-style:none}.ds-delta li{position:absolute;left:0;right:0;transform:translateY(-50%)}.ds-delta button{display:flex;gap:8px;align-items:baseline;width:100%;padding:2px 12px;border:0;border-radius:999px;background:transparent;color:var(--ramp-9);font:inherit;text-align:left;cursor:pointer;transition:background-color 160ms var(--ease-out),color 160ms var(--ease-out)}.ds-delta button:hover,.ds-delta button:focus-visible{background:var(--ramp-4);color:var(--ramp-10)}.ds-delta b{min-width:2.2ch;font-size:.9375rem;color:var(--ramp-10);font-variant-numeric:tabular-nums;text-align:right}.ds-delta .is-failed,.ds-delta .is-failed b{color:var(--coral-text)}"
+    },
+    {
+      "name": "Undo Toast",
+      "kind": "custom",
+      "refersTo": "toast",
+      "description": "A floating capsule that floats up and settles; deletes offer Undo for 6s.",
+      "html": "<div class=\"ds-toast\"><span>Deleted Morning macro.</span><button>Undo</button></div>",
+      "css": ":host{--ramp-0:#071722;--ramp-1:#0a1c28;--ramp-2:#0e2433;--ramp-3:#122c3c;--ramp-4:#16384a;--ramp-5:#1f4558;--ramp-6:#2d5a70;--ramp-7:#5f8796;--ramp-8:#93b4bd;--ramp-9:#b9d0d6;--ramp-10:#e8f2f4;--control-edge:#517f8f;--silt:#7fd1d9;--silt-deep:#4fa9b8;--silt-hover:#9adde3;--on-silt:#062029;--silt-pool:color-mix(in oklab,#7fd1d9 13%,#122c3c);--silt-pool-strong:color-mix(in oklab,#7fd1d9 22%,#122c3c);--sage:#9fbfb1;--sage-deep:#6f9585;--coral:#e0786a;--coral-text:#f4a99d;--coral-ground:#2a2531;--coral-edge:#7a423f;--amber-text:#f1cf8a;--amber-ground:#2c2a26;--amber-edge:#6e5c34;--shadow-pool:0 10px 28px -14px rgba(2,10,16,.75),0 2px 6px -3px rgba(2,10,16,.5);--shadow-float:0 18px 40px -16px rgba(2,10,16,.85),0 4px 12px -6px rgba(2,10,16,.6);--ease-out:cubic-bezier(0.16,1,0.3,1);--font:'Atkinson Hyperlegible','Noto Sans','DejaVu Sans',system-ui,sans-serif;font-family:var(--font)}.ds-toast{display:flex;align-items:center;gap:16px;max-width:440px;min-height:48px;padding:8px 8px 8px 24px;border-radius:999px;background:var(--ramp-4);box-shadow:var(--shadow-float);color:var(--ramp-10);font:.9375rem/1.55 var(--font)}.ds-toast span{flex:1}.ds-toast button{min-height:34px;padding:0 16px;border:0;border-radius:999px;background:var(--silt);color:var(--on-silt);font:700 .9375rem var(--font);cursor:pointer}.ds-toast button:hover{background:var(--silt-hover)}.ds-toast button:focus-visible{outline:2px solid var(--silt);outline-offset:3px}"
     }
   ],
   "narrative": {
     "northStar": "The River Delta",
-    "overview": "The dashboard is a Landsat false-colour delta seen from orbit. Deep slate water is the ground, silt-cyan and sage are the channels and banks that carry meaning, ice-white is the type, and coral is the one warm thing on screen: it appears only where something failed or needs the owner. Your voice is the river; the Overview shows where your words went as a delta of real outcomes, not as a grid of metric cards.\n\nThe window is opened, not watched, inside a 920×640 Qt WebEngine frame (720×520 minimum), offline, dark only. Density is calm and list-led: one sidebar, one column of content capped at 880px, hairline-divided rows that lift on hover. Organic curves exist only in data (the delta); everything else is rectilinear with soft 8px corners. One humanist face on a strict five-step ladder carries all hierarchy; weight and size do the work, never colour noise.\n\nDepth is tonal, not cast. Surfaces step up the cold ramp (rail, ground, raised, control) and a single ambient shadow is reserved for the floating toast.",
+    "overview": "The dashboard is a Landsat false-colour delta seen from orbit, and its chrome is water too. Deep slate water is the ground, silt-cyan and sage are the channels and banks that carry meaning, ice-white is the type, and coral is the one warm thing on screen: it appears only where something failed or needs the owner. Your voice is the river; the Overview shows where your words went as a delta of real outcomes, with waves rolling down its channels, not as a grid of metric cards.\n\nEvery piece of chrome is a body of water that pools, swells and flows on real events. A floating top capsule replaces the old sidebar; its six destinations sit in one pill whose liquid indicator flows to the chosen tab. Content sits in capsules and pools with large soft radii, lifted off the ground by tone plus a soft shadow cast below. A faint, slow current of lit water drifts under the page. The window is opened, not watched: 920×640 in Qt WebEngine (720×520 minimum), offline, dark only.\n\nOne humanist face on a strict five-step ladder carries all hierarchy, code included: there is no monospace. Motion is how water settles: arrivals rise out of a blur, the tab indicator springs, states ripple and breathe; reduced motion keeps every colour and opacity change and removes travel.",
     "keyCharacteristics": [
-      "One eleven-step cold tonal ramp supplies every neutral: grounds, hairlines, edges and all three text tiers.",
-      "Each outcome owns one colour everywhere it appears: delta channel, row mark, conversation entry.",
-      "Coral means failure or \"needs you\", and nothing else is warm except the amber warning tier.",
-      "1px hairlines inset to the text column, hidden beside a lifted row.",
-      "Atkinson Hyperlegible at 13 / 15 / 19 / 24 / 30, weights 400 and 700 only.",
-      "Motion is short (160–220ms) ease-out-expo state feedback; the delta draws once on load; reduced motion removes it."
+      "One eleven-step cold tonal ramp supplies every neutral: grounds, pools, controls, edges and all three text tiers.",
+      "Each outcome owns one colour everywhere it appears: delta channel, droplet, row mark, conversation entry.",
+      "Coral means failure or \"needs you\", and nothing else is warm except the amber caution tier.",
+      "Capsules for what you press or type into, pools for what holds content; no hairline dividers.",
+      "Depth is tone plus a soft cast shadow below; rings exist only where contrast is owed.",
+      "Atkinson Hyperlegible at 13 / 15 / 19 / 24 / 30, weights 400 and 700 only, code in the same face.",
+      "Arrivals flow in, the indicator springs, ambient loops pause when hidden; reduced motion keeps colour, drops travel."
     ],
     "rules": [
       {
         "name": "The One Ramp Rule",
-        "body": "Every neutral comes from ramp-0..10. The only off-ramp neutral is control-edge, which exists for a contrast floor. Do not introduce greys.",
+        "body": "Every neutral comes from ramp-0..10 or a mix of two ramp steps (pool-water, row-water). The only off-ramp neutral is control-edge, which exists for a contrast floor. Do not introduce greys.",
         "section": "colors"
       },
       {
@@ -602,51 +777,62 @@
       },
       {
         "name": "The One Outcome, One Colour Rule",
-        "body": "An outcome's colour is the same in the delta channel, the legend mouth, the row mark and the conversation entry. Colour never carries an outcome alone: every mark sits beside its text label.",
+        "body": "An outcome's colour is the same in the delta channel, its droplets, the legend mouth, the row mark and the conversation entry. Colour never carries an outcome alone: every mark sits beside its text label.",
         "section": "colors"
       },
       {
         "name": "The One Face, One Ladder Rule",
-        "body": "Only 13 / 15 / 19 / 24 / 30 (ratio about 1.25), only weights 400 and 700. A new size is a new step that must earn its place; do not add an intermediate.",
+        "body": "Only 13 / 15 / 19 / 24 / 30 (ratio about 1.25), only weights 400 and 700, only Atkinson Hyperlegible. Code is the same face in a small pool of deeper water. A new size is a new step that must earn its place.",
         "section": "typography"
       },
       {
         "name": "The Numbers Align Rule",
-        "body": "Counts at delta mouths use tabular numerals, right-aligned.",
+        "body": "Counts at delta mouths and task times use tabular numerals; delta counts are right-aligned.",
         "section": "typography"
       },
       {
-        "name": "The Lift, Not Shadow Rule",
-        "body": "Hover and focus raise a row by tone (to ramp-3), never by a shadow. Hairlines beside a lifted row disappear.",
+        "name": "The Water On Water Rule",
+        "body": "Depth is tone plus a soft shadow below. Hover swells a capsule's water (tone and shadow); the capsule stays under the pointer.",
         "section": "elevation"
       },
       {
-        "name": "The Inset Hairline Rule",
-        "body": "List dividers are 1px ramp-5 lines drawn as a pseudo-element inset 8px on each side, absent on the first item and on either side of a hovered item. Section dividers (settings, disclosure, system list) are full-width 1px ramp-5 borders.",
+        "name": "The Ring Is Owed Rule",
+        "body": "A 1px ring appears only where contrast is owed or something is wrong: control-edge on fields, the switch and the recorder (WCAG 1.4.11), silt at 2px on focus, coral-edge or amber-edge on error and waiting states. Secondary buttons, pools, rows and tags have no ring.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Capsule Or Pool Rule",
+        "body": "Controls are capsules, containers are pools at 22px. No square corners and no hairline dividers; space and tone separate things.",
         "section": "shapes"
       },
       {
-        "name": "The Curves Are Data Rule",
-        "body": "Curves appear only where they encode something. Chrome stays rectilinear.",
-        "section": "shapes"
+        "name": "The Simulation Stays Off The Dashboard Rule",
+        "body": "The per-frame outline deformation and ripple-ring technique of the voice pill is only for surfaces where performance does not matter, such as the glanceable voice overlay. It must not go on interactive dashboard surfaces: their liquid language comes from CSS shapes, tone, shadows and short transitions.",
+        "section": "components"
       }
     ],
     "dos": [
-      "Do take every neutral from the ramp-0..10 tokens and use the role it is assigned (rail, ground, raised, control, hairline, edge, three text tiers).",
-      "Do give each outcome its one colour in the delta, row marks and conversation entries, always beside its text label.",
+      "Do take every neutral from ramp-0..10 (or pool-water / row-water) and use the role it is assigned.",
+      "Do give each outcome its one colour in the delta, its droplets, row marks and conversation entries, always beside its text label.",
       "Do keep coral for failure and \"needs you\", and pair every failure with its fix (a banner action, a fix hint, or a Switch model button).",
+      "Do make controls capsules and containers 22px pools, separated by space and tone rather than lines.",
+      "Do lift with tone plus the pool or float shadow, and keep the 1px ring for fields, the switch and alarm states.",
+      "Do keep type on the 13 / 15 / 19 / 24 / 30 ladder in Atkinson Hyperlegible 400/700, code included, with secondary text in ramp-9.",
       "Do show shortcuts as keycaps and destructive actions as quiet buttons that hide immediately and offer Undo.",
-      "Do separate list items with the 1px inset hairline and lift hovered rows to ramp-3.",
-      "Do keep type on the 13 / 15 / 19 / 24 / 30 ladder in Atkinson Hyperlegible 400/700, mono only for literal code.",
-      "Do keep transitions at 160–220ms on the ease-out-expo curve and honour reduced motion."
+      "Do let arrivals flow in on the ease-out curve with capped staggers, pause ambient loops when hidden, and keep colour while removing travel under reduced motion.",
+      "Do keep overlay surfaces opaque and on the shared overlay tokens.",
+      "Do let the voice droplet follow its content and the microphone, and freeze it still under reduced motion."
     ],
     "donts": [
       "Don't build a metric-card telemetry grid; outcomes are shown as the delta and as conversation rows.",
-      "Don't add cards, nested scroll wells, or shadows on resting surfaces; the toast is the only floating element.",
-      "Don't use curves in chrome; organic shapes belong to data.",
+      "Don't bring back a sidebar rail, hairline dividers, nested scroll wells or square corners.",
+      "Don't set anything in monospace.",
+      "Don't put a ring on secondary buttons, pools, rows or tags.",
       "Don't introduce greys, warm neutrals, or a second warm accent outside coral and amber.",
       "Don't show a state the daemon has not confirmed; prefer an honest unknown.",
-      "Don't convey state or outcome by colour alone."
+      "Don't convey state or outcome by colour alone.",
+      "Don't use partial alpha on an overlay surface.",
+      "Don't put the voice pill's blob simulation or ripple rings on interactive dashboard surfaces."
     ]
   }
 }

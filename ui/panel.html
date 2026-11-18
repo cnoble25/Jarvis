@@ -16,7 +16,7 @@
     .panel {
       /* Fixed, so the height measures right even while the window is still tab-sized. */
       width: calc(360px - 16px);
-      border-radius: var(--radius);
+      border-radius: 24px;
       padding: 12px 14px 14px;
       display: grid;
       gap: 12px;
@@ -45,9 +45,9 @@
     }
 
     .icon-button {
-      width: 28px;
-      height: 28px;
-      border-radius: var(--radius-small);
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
       display: grid;
       place-items: center;
       color: var(--text-3);
@@ -61,9 +61,14 @@
       gap: 14px;
     }
 
-    .task + .task {
-      padding-top: 14px;
-      box-shadow: inset 0 1px 0 var(--ramp-4);
+    .task {
+      padding: 12px 14px;
+      border-radius: 18px;
+      background: var(--ramp-2);
+    }
+
+    .task.is-running {
+      background: linear-gradient(160deg, color-mix(in oklab, var(--silt) 12%, var(--ramp-2)), var(--ramp-2) 70%);
     }
 
     .task-top {
@@ -90,8 +95,8 @@
       font-size: var(--t-meta);
       font-weight: 700;
       color: var(--text-2);
-      padding: 2px 6px;
-      border-radius: var(--radius-small);
+      padding: 2px 10px;
+      border-radius: 999px;
     }
 
     .text-button:hover { background: var(--ramp-4); color: var(--text); }
@@ -124,18 +129,24 @@
       color: var(--text-3);
     }
 
+    /* Each step is a droplet; the running one ripples. */
     .step::before {
       content: "";
       grid-row: 1 / span 2;
-      width: 10px;
-      height: 3px;
-      margin-top: 0.6em;
-      border-radius: 2px;
+      width: 7px;
+      height: 7px;
+      margin: 0.45em 0 0 2px;
+      border-radius: 50%;
       background: var(--sage-deep);
     }
 
     .step.is-running { color: var(--text); }
-    .step.is-running::before { background: var(--silt); animation: overlay-pulse 1.4s ease-in-out infinite; }
+    .step.is-running::before { background: var(--silt); animation: step-ripple 1.6s var(--ease-out) infinite; }
+
+    @keyframes step-ripple {
+      from { box-shadow: 0 0 0 0 color-mix(in oklab, var(--silt) 55%, transparent); }
+      to { box-shadow: 0 0 0 7px color-mix(in oklab, var(--silt) 0%, transparent); }
+    }
     .step.is-failed { color: var(--coral-text); }
     .step.is-failed::before { background: var(--coral); }
     .step.is-skipped { text-decoration: line-through; }
@@ -146,8 +157,7 @@
 
     .detail {
       grid-column: 2;
-      font-family: var(--font-code);
-      font-size: 12px;
+      font-size: var(--t-meta);
       color: var(--text-3);
       white-space: nowrap;
       overflow: hidden;
@@ -163,12 +173,14 @@
 
     .task.is-failed .result { color: var(--coral-text); }
 
+    /* Waiting for your OK: the whole task turns amber; its question sits directly in it. */
+    .task.is-waiting {
+      background: linear-gradient(160deg, color-mix(in oklab, var(--amber-text) 10%, var(--amber-ground)), var(--amber-ground));
+      box-shadow: inset 0 0 0 1px var(--amber-edge);
+    }
+
     .approval {
       margin-top: 10px;
-      padding: 10px 12px;
-      border-radius: var(--radius);
-      background: var(--amber-ground);
-      box-shadow: inset 0 0 0 1px var(--amber-edge);
       display: grid;
       gap: 8px;
     }
@@ -183,10 +195,13 @@
     .approval pre {
       max-height: 6.5em;
       overflow: auto;
+      padding: 6px 10px;
+      border-radius: 12px;
+      background: var(--ramp-1);
       white-space: pre-wrap;
       overflow-wrap: anywhere;
-      font-family: var(--font-code);
-      font-size: 12px;
+      font-family: var(--font);
+      font-size: var(--t-meta);
       color: var(--text);
       user-select: text;
     }
@@ -197,16 +212,16 @@
     }
 
     .btn {
-      min-height: 30px;
-      padding: 4px 12px;
-      border-radius: var(--radius-small);
+      min-height: 32px;
+      padding: 4px 16px;
+      border-radius: 999px;
       font-size: var(--t-meta);
       font-weight: 700;
     }
 
-    .btn-primary { background: var(--silt); color: var(--ramp-1); }
-    .btn-primary:hover { background: #9adde3; }
-    .btn-secondary { background: var(--ramp-4); color: var(--text); box-shadow: inset 0 0 0 1px var(--ramp-6); }
+    .btn-primary { background: var(--silt); color: var(--on-silt); }
+    .btn-primary:hover { background: var(--silt-hover); }
+    .btn-secondary { background: var(--ramp-4); color: var(--text); }
     .btn-secondary:hover { background: var(--ramp-5); }
     .btn:disabled { opacity: 0.5; cursor: default; }
 
@@ -214,7 +229,7 @@
     .tab {
       width: 48px;
       height: 56px;
-      border-radius: var(--radius);
+      border-radius: 24px;
       display: grid;
       place-items: center;
       align-content: center;

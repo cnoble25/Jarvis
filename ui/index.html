@@ -13,7 +13,7 @@
   <svg class="icon-sprite" aria-hidden="true" focusable="false">
     <symbol id="i-overview" viewBox="0 0 20 20"><path d="M2 14c3.5-1 5-5 8-5s4 3 8 1"/><path d="M10 9c2-3 4-5 8-6"/></symbol>
     <symbol id="i-conversations" viewBox="0 0 20 20"><path d="M3 5h10M3 9h14M3 13h8"/><path d="M14 13l3 3v-3"/></symbol>
-    <symbol id="i-commands" viewBox="0 0 20 20"><path d="M4 6l4 4-4 4"/><path d="M10 15h6"/></symbol>
+    <symbol id="i-commands" viewBox="0 0 20 20"><path d="M11.5 2.5 5 11h4.5l-1 6.5L15 9h-4.5z"/></symbol>
     <symbol id="i-macros" viewBox="0 0 20 20"><path d="M3 5h5M3 10h9M3 15h14"/><circle cx="11" cy="5" r="1.6"/><circle cx="15" cy="10" r="1.6"/></symbol>
     <symbol id="i-knows" viewBox="0 0 20 20"><circle cx="10" cy="7" r="3.2"/><path d="M4 17c1.2-3.4 10.8-3.4 12 0"/></symbol>
     <symbol id="i-settings" viewBox="0 0 20 20"><path d="M3 6h8M15 6h2M3 14h2M9 14h8"/><circle cx="13" cy="6" r="2"/><circle cx="7" cy="14" r="2"/></symbol>
@@ -22,38 +22,36 @@
 
   <a class="skip-link" href="#main">Skip to content</a>
 
-  <aside class="sidebar">
+  <header class="topbar">
     <div class="brand">
+      <span class="state-mark" aria-hidden="true"></span>
       <span class="brand-name">Jarvis</span>
-      <span class="brand-sub">Voice assistant</span>
+      <span class="brand-state" data-bind="voice-label">Connecting…</span>
     </div>
+    <p id="needs-you" class="needs-you" hidden></p>
 
     <nav class="nav" aria-label="Pages">
-      <button type="button" class="nav-item active" data-page="overview-page" aria-keyshortcuts="Alt+1" title="Alt+1" aria-current="page">
-        <svg class="icon" aria-hidden="true"><use href="#i-overview"/></svg><span>Overview</span>
+      <span class="nav-flow" aria-hidden="true"></span>
+      <button type="button" class="nav-item active" data-page="overview-page" aria-keyshortcuts="Alt+1" title="Overview (Alt+1)" aria-current="page">
+        <svg class="icon" aria-hidden="true"><use href="#i-overview"/></svg><span class="nav-label">Overview</span>
       </button>
-      <button type="button" class="nav-item" data-page="conversations-page" aria-keyshortcuts="Alt+2" title="Alt+2">
-        <svg class="icon" aria-hidden="true"><use href="#i-conversations"/></svg><span>Conversations</span>
+      <button type="button" class="nav-item" data-page="conversations-page" aria-keyshortcuts="Alt+2" title="Conversations (Alt+2)">
+        <svg class="icon" aria-hidden="true"><use href="#i-conversations"/></svg><span class="nav-label">Conversations</span>
       </button>
-      <button type="button" class="nav-item" data-page="commands-page" aria-keyshortcuts="Alt+3" title="Alt+3">
-        <svg class="icon" aria-hidden="true"><use href="#i-commands"/></svg><span>Commands</span>
+      <button type="button" class="nav-item" data-page="commands-page" aria-keyshortcuts="Alt+3" title="Commands (Alt+3)">
+        <svg class="icon" aria-hidden="true"><use href="#i-commands"/></svg><span class="nav-label">Commands</span>
       </button>
-      <button type="button" class="nav-item" data-page="macros-page" aria-keyshortcuts="Alt+4" title="Alt+4">
-        <svg class="icon" aria-hidden="true"><use href="#i-macros"/></svg><span>Macros</span>
+      <button type="button" class="nav-item" data-page="macros-page" aria-keyshortcuts="Alt+4" title="Macros (Alt+4)">
+        <svg class="icon" aria-hidden="true"><use href="#i-macros"/></svg><span class="nav-label">Macros</span>
       </button>
-      <button type="button" class="nav-item" data-page="knows-page" aria-keyshortcuts="Alt+5" title="Alt+5">
-        <svg class="icon" aria-hidden="true"><use href="#i-knows"/></svg><span>What it knows</span>
+      <button type="button" class="nav-item" data-page="knows-page" aria-keyshortcuts="Alt+5" title="What it knows (Alt+5)">
+        <svg class="icon" aria-hidden="true"><use href="#i-knows"/></svg><span class="nav-label">What it knows</span>
       </button>
-      <button type="button" class="nav-item" data-page="settings-page" aria-keyshortcuts="Alt+6" title="Alt+6">
-        <svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span>
+      <button type="button" class="nav-item" data-page="settings-page" aria-keyshortcuts="Alt+6" title="Settings (Alt+6)">
+        <svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span class="nav-label">Settings</span>
       </button>
     </nav>
-
-    <div class="sidebar-foot">
-      <p class="sidebar-state"><span class="state-mark" aria-hidden="true"></span><span data-bind="voice-label">Connecting…</span></p>
-      <p id="needs-you" class="needs-you" hidden></p>
-    </div>
-  </aside>
+  </header>
 
   <main id="main" class="main-content">
     <div id="connection-banner" class="banner banner-error" role="alert" hidden>
@@ -96,7 +94,7 @@
       <section class="delta" aria-labelledby="delta-title">
         <h2 id="delta-title" class="visually-hidden">Where your requests went</h2>
         <div class="delta-figure">
-          <svg id="delta-svg" class="delta-svg" viewBox="0 0 600 160" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <svg id="delta-svg" class="delta-svg" viewBox="0 0 600 108" preserveAspectRatio="none" aria-hidden="true"></svg>
           <span class="delta-source" id="delta-source"></span>
           <ol id="delta-legend" class="delta-legend"></ol>
         </div>
