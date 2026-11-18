@@ -9,6 +9,8 @@ Wires together all subsystems:
 """
 
 import os
+import shutil
+import subprocess
 import sys
 import time
 import threading
@@ -46,8 +48,6 @@ get_env_manager().load_env_dict()
 from daemon.ipc.socket_server import IPCServer
 from daemon.ipc.hotkey_interceptor import HotkeyInterceptor
 from daemon.stt.audio_recorder import AudioRecorder
-from daemon.stt.stt_engine import STTEngine
-from daemon.tts.tts_engine import TTSEngine
 from daemon.tools.registry import ToolRegistry
 from daemon.tools.execution_engine import ExecutionEngine
 from daemon.agent.orchestrator import AgentOrchestrator
@@ -82,9 +82,15 @@ def classify_turn(record: Dict[str, Any]) -> Dict[str, Any]:
     for needle, hint in PROVIDER_FAILURE_HINTS:
         if needle in spoken:
             return {**record, "status": "failed", "failure_hint": hint}
+    # Newer turns record whether the tool succeeded: stderr alone isn't failure (git prints progress there).
+    outcome = record.get("outcome")
+    if outcome is not None and outcome != "failed":
+        return {**record, "status": "ok", "failure_hint": ""}
     if stderr:
         first_line = stderr.splitlines()[0][:200]
         return {**record, "status": "failed", "failure_hint": f"The command reported an error: {first_line}"}
+    if outcome == "failed":
+        return {**record, "status": "failed", "failure_hint": ""}
     return {**record, "status": "ok", "failure_hint": ""}
 
 
@@ -95,6 +101,9 @@ class TriggerBridge(QObject):
     show_hud_signal = Signal()
     hide_hud_signal = Signal()
     update_hud_signal = Signal(str, str)
+    # Live events for the dashboard page: (event name, JSON payload). Emitted from worker threads,
+    # delivered on the GUI thread by Qt's queued connection.
+    dashboard_event_signal = Signal(str, str)
 
 
 class WebBridgeApi(QObject):
@@ -136,6 +145,14 @@ class DashboardWindow(QMainWindow):
         # In-app shortcut trigger for Super+Space
         self.shortcut = QShortcut(QKeySequence("Super+Space"), self)
         self.shortcut.activated.connect(self._on_shortcut_activated)
+
+        if self.bridge:
+            self.bridge.dashboard_event_signal.connect(self.push_event)
+
+    def push_event(self, name: str, payload_json: str):
+        """Hand a live voice-loop event to the page (see window.jarvisEvent in ui/js/app.js)."""
+        js = f"window.jarvisEvent && window.jarvisEvent({json.dumps(name)}, {payload_json});"
+        self.web_view.page().runJavaScript(js)
 
     def _on_shortcut_activated(self):
         if self.bridge:
@@ -257,6 +274,11 @@ class JarvisApplication:
 
         from daemon.agent.fast_path_agent import FastPathCreatorAgent
         self.fast_path_agent = FastPathCreatorAgent(fast_path_manager=self.orchestrator.fast_path_manager)
+        self._wire_stt_vocabulary()
+        self._ensure_local_models()
+        self._wire_routes()
+        from daemon.agent.tasks import TaskBoard
+        self.orchestrator.task_board = TaskBoard(listener=self._on_task_event)
 
         self.recorder = AudioRecorder()
 
@@ -296,6 +318,13 @@ class JarvisApplication:
             self.provider_factory.settings["hotkey"] = new_shortcut
             self.provider_factory.save_settings()
             return {"success": True, "new_shortcut": new_shortcut}
+        elif action == "get_tasks":
+            return {"success": True, "tasks": self.orchestrator.task_board.snapshot()}
+        elif action == "cancel_task":
+            task = self.orchestrator.task_board.cancel(params.get("id") or None)
+            if not task:
+                return {"success": False, "error": "That task has already finished."}
+            return {"success": True, "id": task.id}
         elif action == "get_tools":
             tools = []
             for t in sorted(self.registry.list_tools(), key=lambda m: m.id):
@@ -311,6 +340,14 @@ class JarvisApplication:
             return {"success": True, "tools": tools}
         elif action == "test_voice":
             return self._start_voice_test(params.get("voice"))
+        elif action == "set_voice_sampling":
+            try:
+                count = max(0, min(200, int(params.get("count", 0))))
+            except (TypeError, ValueError):
+                return {"success": False, "error": "Count must be a whole number."}
+            self.provider_factory.settings["voice_samples_remaining"] = count
+            self.provider_factory.save_settings()
+            return {"success": True, "voice_samples": self._voice_sample_status()}
         elif action == "get_settings":
             tts_provider = self.provider_factory.tts_provider
             available_voices = tts_provider.get_available_voices() if tts_provider else []
@@ -332,6 +369,8 @@ class JarvisApplication:
             self.orchestrator.tts = self.provider_factory.tts_provider
             self.tts = self.provider_factory.tts_provider
             self.profiler.set_llm_provider(self.provider_factory.llm_provider)
+            self._wire_stt_vocabulary()
+            self._ensure_local_models()
             self._apply_s3_settings_live()
             self._llm_check_cache = {"at": 0.0, "result": None}
             return {
@@ -412,12 +451,19 @@ class JarvisApplication:
         result: Dict[str, Any] = {"ok": True, "message": ""}
 
         if provider_id.startswith("ollama"):
+            from daemon.utils import ollama_service
             url = getattr(provider, "ollama_url", "http://localhost:11434").rstrip("/")
-            try:
-                with urllib.request.urlopen(f"{url}/api/tags", timeout=0.4) as resp:
-                    result = {"ok": resp.status == 200, "message": ""}
-            except Exception:
-                result = {"ok": False, "message": "Ollama isn't running. Start it with `ollama serve`."}
+            if ollama_service.is_running(url, timeout=0.4):
+                result = {"ok": True, "message": ""}
+            elif ollama_service.is_starting():
+                # Not cached: the dashboard should flip to Ready the moment Ollama answers.
+                return {"ok": False, "starting": True, "message": "Starting Ollama…"}
+            elif ollama_service.find_binary():
+                # Selected but not running (never started, or it stopped): start it in the background.
+                self._ensure_local_models()
+                return {"ok": False, "starting": True, "message": "Starting Ollama…"}
+            else:
+                result = {"ok": False, "message": "Ollama isn't installed. Install it, or pick a cloud model in Settings."}
         elif provider_id == "anthropic_llm" and not os.environ.get("ANTHROPIC_API_KEY"):
             result = {"ok": False, "message": "No Anthropic API key is set. Add one in Settings."}
         elif provider_id == "gemini_llm" and not os.environ.get("GEMINI_API_KEY"):
@@ -437,6 +483,7 @@ class JarvisApplication:
             # Kept for older IPC clients (bin/jarvis-macro etc.)
             "daemon_status": "active",
             "active_keybind": self.hotkey_interceptor.shortcut_str,
+            "tasks_running": len(self.orchestrator.task_board.running(background_only=True)),
             "model_name": self.orchestrator.model_name,
             "s3_bucket": self.logger.bucket_name or "Not Configured",
             # Dashboard fields
@@ -456,6 +503,7 @@ class JarvisApplication:
             "llm": {"name": llm_info.get("name", ""), "model": llm_info.get("model_name", ""), "check": self._check_llm()},
             "tts": {"name": tts_info.get("name", ""), "voice": factory.settings.get("tts_voice", "")},
             "reanalyzing": self._reanalyzing,
+            "voice_samples": self._voice_sample_status(),
         }
 
     def _apply_s3_settings_live(self):
@@ -469,6 +517,170 @@ class JarvisApplication:
         self.logger.aws_region = os.getenv("AWS_REGION", "us-east-1")
         enabled_env = os.getenv("JARVIS_S3_SYNC_ENABLED", "false").lower() in ("true", "1", "yes")
         self.logger.s3_sync_enabled = enabled_env and bool(self.logger.bucket_name)
+
+    # ------------------------------------------------------------------
+    # Speech recognition helpers
+    # ------------------------------------------------------------------
+
+    def _known_phrases(self):
+        """Everything Jarvis already knows you say: shortcut phrases, command examples, macro names."""
+        phrases = []
+        for rule in self.orchestrator.fast_path_manager.get_all_rules():
+            phrases.extend(rule.get("triggers") or [])
+        for tool in self.registry.list_tools():
+            phrases.extend(ex.user_prompt for ex in tool.examples)
+        try:
+            from daemon.macros.macro_manager import get_macro_manager
+            for macro in get_macro_manager().list_macros().values():
+                name = str(macro.get("name") or macro.get("id") or "").replace("_", " ").replace("-", " ").strip()
+                if name:
+                    phrases.extend([name, f"start {name}", f"run {name}"])
+        except Exception as err:
+            print(f"[Jarvis Main] Couldn't read macros for the STT vocabulary: {err}", flush=True)
+        return phrases
+
+    def _wire_routes(self):
+        """'Hey Claude, ...' sends that one request to Claude Code (headless, the user's own login)."""
+        import re
+        from daemon.providers.llm.claude_code_llm_provider import ClaudeCodeLLMProvider, find_claude
+
+        cache: Dict[str, Any] = {}
+
+        def claude_code():
+            if not find_claude():
+                print("[Jarvis Main] 'Claude' route requested but the claude CLI isn't installed.", flush=True)
+                return None
+            model = self.provider_factory.settings.get("claude_code_model", "haiku")
+            if cache.get("model") != model:
+                cache["provider"], cache["model"] = ClaudeCodeLLMProvider(model_name=model), model
+            return cache["provider"]
+
+        # "Claude, ...", "Hey Claude ...", "Ask Claude (Code) to ...", plus common mishearings of the name.
+        name = r"(?:claude|clawed|clod)(?:\s+code)?"
+        leading = re.compile(
+            # Up to two short lead-ins first: "No. Hey Claude, ...", "Okay, so Claude, ...".
+            r"^\s*(?:(?:no|nope|okay|ok|actually|so|um|uh|wait|well|alright|sorry)[\s,.!]+){0,2}"
+            r"(?:(?:hey|hi|ok(?:ay)?|yo)[\s,]+)?(?:ask[\s,]+)?" + name + r"\b[\s,:.!?-]*(?:to\s+)?",
+            re.IGNORECASE,
+        )
+        # Addressed at the end: "..., Claude?" / "... thanks Claude." (needs a comma or 'hey' before the name).
+        trailing = re.compile(
+            r"(?:(?:,\s*|\s+hey\s+)" + name + r"\s*[.?!]*|\s+" + name + r"\s*\?)\s*$",  # bare name only when it ends a question
+            re.IGNORECASE,
+        )
+        self.orchestrator.routes = [(leading, claude_code, "Claude Code"), (trailing, claude_code, "Claude Code")]
+        self.orchestrator.route_listener = lambda label: self.bridge.update_hud_signal.emit("AGENT_THINKING", f"Asking {label}…")
+
+    def _ensure_local_models(self):
+        """If the thinking or learning model runs on Ollama, make sure `ollama serve` is up."""
+        from daemon.utils import ollama_service
+        wanted: Dict[str, set] = {}  # url -> models to keep loaded
+        for provider in (self.provider_factory.llm_provider, getattr(self.provider_factory, "memory_llm_provider", None)):
+            if provider is None:
+                continue
+            info = provider.get_provider_info() or {}
+            if str(info.get("id", "")).startswith("ollama"):
+                url = getattr(provider, "ollama_url", "http://localhost:11434").rstrip("/")
+                wanted.setdefault(url, set()).add(getattr(provider, "model_name", ""))
+        for url, models in wanted.items():
+            def _warm(url=url, models=tuple(m for m in models if m)):
+                for model in models:
+                    ollama_service.warm_up(url, model)
+
+            if ollama_service.is_running(url, timeout=0.3):
+                threading.Thread(target=_warm, daemon=True, name="JarvisOllamaWarmup").start()
+                continue
+            if ollama_service.is_starting():
+                continue
+
+            def _done(result, warm=_warm):
+                self._llm_check_cache = {"at": 0.0, "result": None}
+                if not result.get("ok"):
+                    print(f"[Jarvis Main] {result.get('message')}", flush=True)
+                else:
+                    warm()
+                self._dashboard_event("status_changed")
+
+            ollama_service.ensure_running_async(url, on_done=_done)
+
+    def _on_task_event(self, event: str, task: Dict[str, Any]):
+        """A background task started, moved to a new step, or finished (called from its own thread)."""
+        self._dashboard_event(event, {"task": task})
+        self.ipc_server.broadcast_event(event.upper(), {"task": task})
+        if event == "task_finished" and task.get("status") != "cancelled":
+            threading.Thread(target=self._announce_task, args=(task,), daemon=True,
+                             name="JarvisTaskAnnounce").start()
+
+    def _announce_task(self, task: Dict[str, Any]):
+        """Say that a background task finished, once Jarvis isn't in the middle of a voice request."""
+        text = task.get("result") or "Finished."
+        title = "Done" if task.get("status") == "done" else "Couldn't finish"
+        query = " ".join(str(task.get("title", "")).split())
+        query = query if len(query) <= 60 else query[:59] + "…"
+        notify = shutil.which("notify-send")
+        if notify:
+            subprocess.Popen([notify, "-a", "Jarvis", "-i", "audio-input-microphone", f"{title}: {query}", text],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.time() + 120
+        while self.voice_state != "idle" and time.time() < deadline:
+            time.sleep(0.2)
+        self.bridge.show_hud_signal.emit()
+        self.bridge.update_hud_signal.emit("TTS_SPEAKING", text)
+        try:
+            self.orchestrator._speak(text)
+        except Exception as err:
+            print(f"[Jarvis Main] Couldn't speak the task result: {err}", flush=True)
+        time.sleep(1.5)
+        if self.voice_state == "idle":
+            self.bridge.hide_hud_signal.emit()
+
+    def _dashboard_event(self, name: str, payload: Optional[Dict[str, Any]] = None):
+        try:
+            self.bridge.dashboard_event_signal.emit(name, json.dumps(payload or {}))
+        except Exception as err:
+            print(f"[Jarvis Main] Couldn't notify the dashboard ({name}): {err}", flush=True)
+
+    def _wire_stt_vocabulary(self):
+        stt = self.provider_factory.stt_provider
+        if stt is not None and hasattr(stt, "set_vocabulary_source"):
+            stt.set_vocabulary_source(self._known_phrases)
+
+    def _voice_sample_status(self) -> Dict[str, Any]:
+        sample_dir = Path.home() / ".local" / "share" / "jarvis" / "voice_samples"
+        saved = len(list(sample_dir.glob("*.wav"))) if sample_dir.exists() else 0
+        return {
+            "remaining": int(self.provider_factory.settings.get("voice_samples_remaining", 0) or 0),
+            "saved": saved,
+            "dir": str(sample_dir),
+        }
+
+    def _maybe_save_voice_sample(self, pcm_buffer, heard: str, alternatives):
+        """When the user opted in, keep this utterance's audio and what was heard, for accuracy testing."""
+        remaining = int(self.provider_factory.settings.get("voice_samples_remaining", 0) or 0)
+        if remaining <= 0 or pcm_buffer is None or len(pcm_buffer) == 0:
+            return
+        try:
+            import numpy as np
+            import soundfile as sf
+            if isinstance(pcm_buffer, (bytes, bytearray)):
+                audio = np.frombuffer(pcm_buffer[: len(pcm_buffer) - len(pcm_buffer) % 2], dtype=np.int16)
+            else:
+                audio = np.asarray(pcm_buffer).flatten()
+                if audio.dtype != np.int16:
+                    audio = (np.clip(audio.astype(np.float32), -1.0, 1.0) * 32767).astype(np.int16)
+            sample_dir = Path.home() / ".local" / "share" / "jarvis" / "voice_samples"
+            sample_dir.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            wav_path = sample_dir / f"sample-{stamp}-{remaining}.wav"
+            sf.write(wav_path, audio, 16000, subtype="PCM_16")
+            entry = {"file": wav_path.name, "timestamp": stamp, "heard": heard, "alternatives": alternatives, "said": None}
+            with open(sample_dir / "samples.jsonl", "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry) + "\n")
+            self.provider_factory.settings["voice_samples_remaining"] = remaining - 1
+            self.provider_factory.save_settings()
+            print(f"[Jarvis Main] Saved voice sample {wav_path.name} ({remaining - 1} left).", flush=True)
+        except Exception as err:
+            print(f"[Jarvis Main] Couldn't save voice sample: {err}", flush=True)
 
     def _start_voice_test(self, voice: Optional[str]) -> Dict[str, Any]:
         tts = self.provider_factory.tts_provider
@@ -516,6 +728,7 @@ class JarvisApplication:
         """
         print("\n[Jarvis Main] 🔴 Hotkey Pressed! Emitting show_hud_signal...", flush=True)
         self.voice_state = "listening"
+        self._dashboard_event("listening")
         self.bridge.show_hud_signal.emit()
         self.bridge.update_hud_signal.emit("RECORDING_STARTED", "")
 
@@ -533,6 +746,7 @@ class JarvisApplication:
         """
         print("[Jarvis Main] ⏹️ Hotkey Released! Processing voice session...", flush=True)
         self.voice_state = "thinking"
+        self._dashboard_event("thinking")
         active_model = self.orchestrator.get_active_model_name()
         thinking_msg = f"Inferring action with {active_model}..."
         self.bridge.update_hud_signal.emit("AGENT_THINKING", thinking_msg)
@@ -551,6 +765,8 @@ class JarvisApplication:
                 stt_provider = self.provider_factory.stt_provider
                 user_text = stt_provider.transcribe_buffer(pcm_buffer)
                 print(f"[Jarvis Main] Transcribed ({stt_provider.get_provider_info()['name']}): \"{user_text}\"", flush=True)
+                alternatives = list(getattr(stt_provider, "last_alternatives", []) or [])[:5]
+                self._maybe_save_voice_sample(pcm_buffer, user_text, alternatives)
 
                 if not user_text.strip():
                     self.voice_state = "idle"
@@ -558,11 +774,16 @@ class JarvisApplication:
                     return
 
                 self.ipc_server.broadcast_event("STT_PREVIEW", {"text": user_text})
+                self._dashboard_event("heard", {"text": user_text, "alternatives": alternatives})
+                if alternatives:
+                    self.logger.set_next_turn_meta({"heard_alternatives": alternatives})
 
                 # 1 & 2. Agent Orchestrator processes query & executes tool calls if needed
                 result = self.orchestrator.process_voice_query(user_text, speak_output=True)
 
                 final_spoken = result.get("final_spoken_summary", "Task complete.")
+                # The orchestrator has logged the turn by now: refresh the dashboard's lists.
+                self._dashboard_event("turn_logged", {"text": user_text, "reply": final_spoken})
                 self.voice_state = "speaking"
                 self.bridge.update_hud_signal.emit("TTS_SPEAKING", final_spoken)
 
@@ -593,6 +814,7 @@ class JarvisApplication:
                 # Hide HUD pill after processing finishes
                 time.sleep(1.5)
                 self.voice_state = "idle"
+                self._dashboard_event("idle")
                 self.bridge.hide_hud_signal.emit()
                 self.ipc_server.broadcast_event("IDLE")
 

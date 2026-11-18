@@ -74,6 +74,8 @@ class MacroManager:
             else:
                 # Simple app binary name (e.g. 'firefox', 'spotify', 'steam', 'discord')
                 cmd, display_name = scanner.resolve_app_launcher_command(step_clean)
+                if not cmd:  # no desktop entry: run the step as a command, as the user wrote it
+                    cmd, display_name = scanner._build_launch_cmd(step_clean, step_clean), step_clean
                 lines.append(f"# Launch App: {display_name}")
                 lines.append(f"{cmd}")
 

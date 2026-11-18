@@ -93,6 +93,7 @@ const state = {
   rules: [],
   tools: [],
   pendingDeletes: new Map(),
+  tasks: [],
 };
 
 let bridgeResolve;
@@ -277,11 +278,13 @@ function renderStatus(s) {
   const check = s.llm?.check || { ok: true };
   const idle = !s.voice_state || s.voice_state === "idle";
   // "Ready" only when Jarvis could actually answer; otherwise say so.
-  const voice = idle && !check.ok
-    ? { label: "Can't think", detail: "Fix the model to talk again." }
-    : VOICE_STATES[s.voice_state] || VOICE_STATES.idle;
+  const voice = idle && check.starting
+    ? { label: "Starting up", detail: check.message || "Starting the local model…" }
+    : idle && !check.ok
+      ? { label: "Can't think", detail: "Fix the model to talk again." }
+      : VOICE_STATES[s.voice_state] || VOICE_STATES.idle;
   document.body.dataset.voiceState = s.voice_state || "idle";
-  document.body.classList.toggle("is-blocked", idle && !check.ok);
+  document.body.classList.toggle("is-blocked", idle && !check.ok && !check.starting);
 
   $$("[data-bind='voice-label']").forEach((node) => { node.textContent = voice.label; });
   $$("[data-bind='voice-detail']").forEach((node) => { node.textContent = voice.detail; });
@@ -295,7 +298,7 @@ function renderStatus(s) {
 
   const llmWarning = $("#llm-warning");
   if (llmWarning) {
-    llmWarning.hidden = check.ok;
+    llmWarning.hidden = check.ok || Boolean(check.starting);
     setRich("#llm-warning-text", check.message || "");
   }
 
@@ -312,6 +315,19 @@ function renderStatus(s) {
   if (needsNode) {
     needsNode.textContent = needs;
     needsNode.hidden = !needs;
+  }
+
+  const samples = s.voice_samples;
+  if (samples) {
+    const recording = samples.remaining > 0;
+    setText("#voice-samples-dir", samples.dir.replace(/^\/(var\/)?home\/[^/]+/, "~"));
+    setText("#voice-samples-status", recording
+      ? `Recording: ${samples.remaining} more ${samples.remaining === 1 ? "command" : "commands"} to keep. ${samples.saved} saved so far.`
+      : samples.saved ? `${samples.saved} ${samples.saved === 1 ? "sample" : "samples"} saved.` : "");
+    const start = $("#btn-voice-samples");
+    const stop = $("#btn-voice-samples-stop");
+    if (start) start.hidden = recording;
+    if (stop) stop.hidden = !recording;
   }
 
   // Settings fields that mirror live state (only fill when the user isn't editing them).
@@ -347,6 +363,77 @@ async function loadTranscripts() {
   state.transcripts = transcripts;
   renderOverviewActivity();
   renderTranscriptList();
+}
+
+/* "Heard 74% · also “poor Spotify” 21%": what Jarvis considered, when it wasn't sure. */
+/* Compare words ignoring case and punctuation ("account's" = "accounts"). */
+const wordKey = (w) => String(w).toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+/* The part of `text` that differs from `other`, with one word of context and ellipses. */
+function differingSpan(text, other) {
+  const a = String(text).split(/\s+/).filter(Boolean);
+  const b = String(other).split(/\s+/).filter(Boolean);
+  let start = 0;
+  while (start < a.length && start < b.length && wordKey(a[start]) === wordKey(b[start])) start += 1;
+  let end = 0;
+  while (end < a.length - start && end < b.length - start && wordKey(a[a.length - 1 - end]) === wordKey(b[b.length - 1 - end])) end += 1;
+  if (start === a.length && start === b.length) return null;
+  const from = Math.max(0, start - 1);
+  const to = Math.min(a.length, a.length - end + 1);
+  const span = a.slice(from, Math.max(to, from + 1)).join(" ") || "(nothing)";
+  return `${from > 0 ? "…" : ""}${span}${to < a.length ? "…" : ""}`;
+}
+
+/*
+ * "Heard “…playlist Claude?” 53% · or “…playlist on?” 11%": only the words speech recognition
+ * wasn't sure about. Variants that differ only in case or punctuation are merged.
+ */
+function heardLine(turn) {
+  const alts = Array.isArray(turn.heard_alternatives) ? turn.heard_alternatives : [];
+  if (alts.length < 2) return null;
+  const merged = [];
+  for (const a of alts) {
+    const key = String(a.text).split(/\s+/).map(wordKey).join(" ");
+    const hit = merged.find((m) => m.key === key);
+    if (hit) hit.probability += a.probability;
+    else merged.push({ key, text: a.text, probability: a.probability });
+  }
+  const [chosen, ...rest] = merged;
+  const others = rest.filter((a) => a.probability >= 0.05).slice(0, 2);
+  if (others.length === 0) return null;
+  const pct = (p) => `${Math.round(p * 100)}%`;
+  const chosenSpan = differingSpan(chosen.text, others[0].text);
+  if (!chosenSpan) return null;
+  return el("p", { class: "heard-line" }, [
+    "Heard ", el("q", { text: chosenSpan }), ` ${pct(chosen.probability)}`,
+    ...others.flatMap((a) => {
+      const span = differingSpan(a.text, chosen.text);
+      return span ? [" · or ", el("q", { text: span }), ` ${pct(a.probability)}`] : [];
+    }),
+  ]);
+}
+
+/* "Sent to Claude Code · Haiku", plus how sure Jarvis was that you said the name. */
+function routeTag(turn) {
+  const route = turn.route;
+  if (!route || !route.label) return null;
+  const model = route.model ? ` · ${modelLabel(route.model)}` : "";
+  const unsure = typeof route.confidence === "number" && route.confidence < 0.7;
+  return el("span", { class: `route-tag${unsure ? " is-unsure" : ""}` }, [
+    `Sent to ${route.label}${model}`,
+    unsure ? ` · ${Math.round(route.confidence * 100)}% sure you said “Claude”` : null,
+  ]);
+}
+
+/* What happened, in words: outcome (or Failed + what it tried), and the route. */
+function outcomeParts(turn) {
+  const failed = turn.status === "failed";
+  const tool = turn.tool_executed && turn.tool_executed !== "none" ? turn.tool_executed : "";
+  return [
+    failed ? turnStatusLabel(turn) : el("span", { class: "outcome", style: `--dot: var(--outcome-${outcomeOf(turn).id})`, text: outcomeOf(turn).label }),
+    failed && tool ? el("span", {}, ["Tried ", el("code", { text: tool.split("->")[0].trim() })]) : null,
+    routeTag(turn),
+  ];
 }
 
 function turnStatusLabel(turn) {
@@ -508,17 +595,93 @@ function renderLatest() {
   const failed = turn.status === "failed";
   box.classList.toggle("is-failed", failed);
   const showHint = failed && turn.failure_hint && state.status?.llm?.check?.ok !== false;
+  const query = turn.user_query || "(nothing heard)";
+  // Your words lead, but a long sentence shouldn't shout: scale down with length.
+  const size = query.length <= 40 ? "is-short" : query.length <= 90 ? "is-medium" : "is-long";
+  const heard = heardLine(turn);
   box.replaceChildren(
-    el("div", { class: "latest-when" }, [
-      el("time", { datetime: turn.timestamp || "", text: formatWhen(turn.timestamp) }),
-      failed ? turnStatusLabel(turn) : (turn.tool_executed && turn.tool_executed !== "none")
-        ? el("code", { class: "latest-tool", text: turn.tool_executed })
-        : el("span", { class: "latest-tool", text: "Reply only" }),
-    ]),
-    el("q", { class: "latest-query", text: turn.user_query || "(nothing heard)" }),
+    el("time", { class: "latest-when", datetime: turn.timestamp || "", text: formatWhen(turn.timestamp) }),
+    el("q", { class: `latest-query ${size}`, text: query, title: query }),
+    ...(heard ? [heard] : []),
     el("p", { class: "latest-reply", text: turn.spoken_response || "(no reply)" }),
+    el("p", { class: "latest-meta" }, outcomeParts(turn)),
     ...(showHint ? [el("p", { class: "fix-hint latest-hint" }, richText(turn.failure_hint))] : []),
   );
+}
+
+/* ---------- Background tasks ---------- */
+
+const TASK_LINGER_MS = 90 * 1000; // a finished task stays up long enough to read its outcome
+let taskTicker = null;
+
+function elapsed(fromSec, toSec) {
+  const total = Math.max(0, Math.round((toSec ?? Date.now() / 1000) - fromSec));
+  const m = Math.floor(total / 60);
+  return `${m}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function upsertTask(task) {
+  if (!task || !task.id) return;
+  const i = state.tasks.findIndex((t) => t.id === task.id);
+  if (i >= 0) state.tasks[i] = task;
+  else state.tasks.unshift(task);
+}
+
+async function loadTasks() {
+  const res = await ipc("get_tasks");
+  if (res && res.success) {
+    state.tasks = res.tasks || [];
+    renderTasks();
+  }
+}
+
+async function cancelTask(id, button) {
+  button.disabled = true;
+  button.textContent = "Stopping…";
+  const res = await ipc("cancel_task", { id });
+  if (!res || !res.success) {
+    button.textContent = "Already finished";
+  }
+}
+
+const TASK_STATUS = { running: "Working", done: "Done", failed: "Couldn’t finish", cancelled: "Stopped" };
+
+function renderTasks() {
+  const section = $("#tasks-section");
+  const list = $("#task-list");
+  if (!section || !list) return;
+  const now = Date.now() / 1000;
+  const visible = state.tasks
+    .filter((t) => t.status === "running" || (t.finished_at && (now - t.finished_at) * 1000 < TASK_LINGER_MS))
+    .sort((a, b) => (a.status === "running" ? 0 : 1) - (b.status === "running" ? 0 : 1) || b.started_at - a.started_at);
+  section.hidden = visible.length === 0;
+  list.replaceChildren(...visible.map((t) => {
+    const running = t.status === "running";
+    const steps = (t.steps || []).map((s) => el("li", { class: `task-step is-${s.state || "done"}` }, [
+      el("span", { class: "task-step-label", text: s.label }),
+      s.detail ? el("code", { class: "task-step-detail", text: s.detail, title: s.detail }) : null,
+    ]));
+    if (running && t.current && !(t.steps || []).some((s) => s.state === "running")) {
+      steps.push(el("li", { class: "task-step is-running" }, [el("span", { class: "task-step-label", text: t.current })]));
+    }
+    return el("li", { class: `task is-${t.status}` }, [
+      el("span", { class: "task-status" }, [
+        el("span", { class: "task-state", text: TASK_STATUS[t.status] || t.status }),
+        el("span", { class: "task-time", text: elapsed(t.started_at, running ? null : t.finished_at) }),
+      ]),
+      el("div", { class: "task-head" }, [
+        el("q", { class: "task-title", text: t.title, title: t.title }),
+        t.route ? el("span", { class: "route-tag", text: `Sent to ${t.route}` }) : null,
+        running ? el("button", { type: "button", class: "btn btn-quiet btn-small task-cancel",
+          onclick: (e) => cancelTask(t.id, e.currentTarget), text: "Cancel" }) : null,
+      ]),
+      steps.length ? el("ol", { class: "task-steps" }, steps) : null,
+      !running && t.result ? el("p", { class: "task-result", text: t.result }) : null,
+    ]);
+  }));
+  // Tick the elapsed time while something runs; stop once nothing is left on screen.
+  if (visible.length && !taskTicker) taskTicker = setInterval(renderTasks, 1000);
+  if (!visible.length && taskTicker) { clearInterval(taskTicker); taskTicker = null; }
 }
 
 function renderRecentRows() {
@@ -535,7 +698,8 @@ function renderRecentRows() {
       el("time", { class: "row-when", datetime: t.timestamp || "", text: formatWhen(t.timestamp) }),
       el("span", { class: "row-query", text: t.user_query || "(nothing heard)" }),
       el("span", { class: "row-reply", text: t.spoken_response || "" }),
-      el("span", { class: "row-tool outcome", style: `--dot: var(--outcome-${outcomeOf(t).id})`, text: failed ? "Failed" : outcomeOf(t).label }),
+      el("span", { class: "row-tool outcome", style: `--dot: var(--outcome-${outcomeOf(t).id})`, title: t.route ? `Sent to ${t.route.label}` : null,
+        text: `${failed ? "Failed" : outcomeOf(t).label}${t.route ? " · Claude" : ""}` }),
     ]);
   }));
 }
@@ -591,12 +755,12 @@ function renderTranscriptList() {
         el("q", { class: "turn-query", text: t.user_query || "(nothing heard)" }),
         el("time", { class: "turn-time", datetime: t.timestamp || "", text: formatWhen(t.timestamp) }),
       ]),
+      heardLine(t),
       el("p", { class: "turn-reply", text: t.spoken_response || "(no reply)" }),
       failed && t.failure_hint ? el("p", { class: "fix-hint" }, richText(t.failure_hint)) : null,
       el("footer", { class: "turn-meta" }, [
-        turnStatusLabel(t),
-        failed ? null : el("span", { class: "outcome", style: `--dot: var(--outcome-${outcomeOf(t).id})`, text: outcomeOf(t).label }),
-        (t.tool_executed && t.tool_executed !== "none") ? el("span", {}, ["Ran ", el("code", { text: t.tool_executed })]) : el("span", { text: "Reply only" }),
+        ...outcomeParts(t),
+        !failed && t.tool_executed && t.tool_executed !== "none" ? el("span", {}, ["Ran ", el("code", { text: t.tool_executed.split("->")[0].trim() })]) : null,
         synced ? null : el("span", { class: "tag", text: "Not backed up" }),
       ]),
     ]);
@@ -710,7 +874,7 @@ async function loadTools() {
   renderTools();
 }
 
-const RISK_LABELS = { SAFE: "Safe", MEDIUM: "Medium", HIGH: "High" };
+const RISK_LABELS = { SAFE: "Safe", MEDIUM: "Medium", HIGH: "High", CRITICAL: "Critical" };
 
 function renderTools() {
   const list = $("#installed-tools-list");
@@ -936,13 +1100,12 @@ function renderFastPathRules() {
   const PAGE = 12;
   const visible = query || state.rulesExpanded ? matches : matches.slice(0, PAGE);
 
+  const dupes = duplicateRuleIds(state.rules);
   list.replaceChildren(...visible.map((rule) => {
-    const triggers = rule.triggers || [];
+    const triggers = (rule.triggers || []).map(spokenPhrase);
     const shown = triggers.slice(0, 6);
     const hidden = triggers.slice(6);
-    const target = rule.tool && rule.tool !== "none"
-      ? ["Runs ", el("code", { text: rule.tool })]
-      : rule.spoken_summary ? ["Replies “", rule.spoken_summary, "”"] : ["Replies directly"];
+    const target = ruleTarget(rule);
 
     const triggerList = el("ul", { class: "trigger-list" }, shown.map((t) => el("li", { text: t })));
     const more = hidden.length
@@ -963,6 +1126,7 @@ function renderFastPathRules() {
         el("div", { class: "rule-title" }, [
           el("strong", { text: ruleName(rule) }),
           el("span", { class: `tag ${rule.is_system ? "" : "tag-learned"}`, text: rule.is_system ? "Built in" : "Learned" }),
+          dupes.has(rule.id) ? el("span", { class: "tag", title: "Another learned shortcut already does exactly this.", text: "Duplicate" }) : null,
         ]),
         el("div", { class: "rule-triggers" }, [triggerList, more]),
         el("p", { class: "rule-target" }, target),
@@ -999,7 +1163,41 @@ function renderFastPathRules() {
 }
 
 function ruleName(rule) {
-  return String(rule.name || rule.id).replace(/^learned shortcut:\s*/i, "");
+  const name = String(rule.name || rule.id).replace(/^learned shortcut:\s*/i, "").trim();
+  // Generic learned names ("Learned Fast-Path Rule") say nothing: name it after its first phrase.
+  if (!name || /^learned\b.*\brule$/i.test(name)) {
+    const first = (rule.triggers || [])[0] || rule.id;
+    return humanName(String(first).replace(/_/g, " "));
+  }
+  return name;
+}
+
+/* Phrases with "_" read as spoken words. */
+const spokenPhrase = (t) => String(t).replace(/_/g, " ");
+
+/* What the shortcut actually does, resolving macro scripts to their macro names. */
+function ruleTarget(rule) {
+  const cmd = rule.args && rule.args.command;
+  if (rule.tool === "execute_terminal_command" && cmd) {
+    const macro = String(cmd).match(/\/macros\/([^/]+)\.sh$/);
+    if (macro) return ["Runs the macro ", el("strong", { text: humanName(macro[1]) })];
+    return ["Runs ", el("code", { text: cmd })];
+  }
+  if (rule.tool && rule.tool !== "none") return ["Runs ", el("code", { text: rule.tool })];
+  return rule.spoken_summary ? ["Replies “", rule.spoken_summary, "”"] : ["Replies directly"];
+}
+
+/* Learned rules that do the same thing with the same phrases (ignoring "_" vs space). */
+function duplicateRuleIds(rules) {
+  const seen = new Map();
+  const dupes = new Set();
+  for (const r of rules) {
+    if (r.is_system) continue;
+    const key = `${r.tool}|${JSON.stringify(r.args || {})}|${(r.triggers || []).map((t) => spokenPhrase(t).toLowerCase()).sort().join(",")}`;
+    if (seen.has(key)) dupes.add(r.id);
+    else seen.set(key, r.id);
+  }
+  return dupes;
 }
 
 /* "gaming-mode" / "work_mode" → "Gaming mode". The spoken name is what people read. */
@@ -1034,18 +1232,50 @@ function fillSelect(select, options, selectedValue) {
   select.replaceChildren(...options.map((o) => {
     if (o.group) {
       return el("optgroup", { label: o.group }, o.options.map((x) =>
-        el("option", { value: x.value, selected: x.value === selectedValue, text: x.label })));
+        el("option", { value: x.value, selected: x.value === selectedValue, text: x.label, title: x.title || null })));
     }
     return el("option", { value: o.value, selected: o.value === selectedValue, text: o.label });
   }));
   if (selectedValue && !select.value) select.selectedIndex = 0;
 }
 
+const LLM_PROVIDER_LABELS = {
+  ollama: "Ollama · on this computer",
+  ollama_llm: "Ollama · on this computer",
+  anthropic_llm: "Anthropic API · cloud, needs a key",
+  claude_code: "Claude Code · your Claude login",
+  gemini_llm: "Google Gemini · cloud, needs a key",
+};
+
+/* "claude-haiku-4-5-20251001" → "Claude Haiku 4.5", "qwen3.5:9b" → "Qwen 3.5 · 9B". Raw id stays in the tooltip. */
+function modelLabel(id) {
+  const raw = String(id || "");
+  const claude = raw.match(/^claude-(haiku|sonnet|opus)-(\d+)-(\d+)/);
+  if (claude) return `Claude ${claude[1][0].toUpperCase()}${claude[1].slice(1)} ${claude[2]}.${claude[3]}`;
+  const short = raw.match(/^(haiku|sonnet|opus)$/);
+  if (short) return `Claude ${short[1][0].toUpperCase()}${short[1].slice(1)}`;
+  const gemini = raw.match(/^gemini-([\d.]+)-(.+)$/);
+  if (gemini) return `Gemini ${gemini[1]} ${gemini[2].split("-").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ")}`;
+  const ollama = raw.match(/^([a-z]+)([\d.]*):([\w.]+)$/i);
+  if (ollama) return `${ollama[1][0].toUpperCase()}${ollama[1].slice(1)} ${ollama[2]}`.trim() + ` · ${ollama[3].toUpperCase()}`;
+  return raw;
+}
+
+function llmGroupLabel(p) {
+  return LLM_PROVIDER_LABELS[p.id] || `${providerBaseName(p)} · ${(p.type || "cloud") === "local" ? "on this computer" : "cloud"}`;
+}
+
 function llmOptions(providers) {
   return providers.map((p) => ({
-    group: `${providerBaseName(p)} · ${(p.type || "cloud") === "local" ? "on this computer" : "cloud"}`,
-    options: (p.models && p.models.length ? p.models : [p.model_name || p.id]).map((m) => ({ value: `${p.id}:${m}`, label: `${m} · ${providerBaseName(p)}` })),
+    group: llmGroupLabel(p),
+    options: (p.models && p.models.length ? p.models : [p.model_name || p.id]).map((m) => ({ value: `${p.id}:${m}`, label: modelLabel(m), title: m })),
   }));
+}
+
+/* Caption under the Overview picker: where the chosen model runs. */
+function describeModelChoice(value) {
+  const providerId = String(value || "").split(":")[0];
+  setText("#overview-model-where", LLM_PROVIDER_LABELS[providerId] || "");
 }
 
 function llmValue(provider, model) {
@@ -1070,11 +1300,17 @@ async function loadSettings() {
 
   populateVoiceSelect(res.available_voices || [], s.tts_voice);
 
+  const claudeRoute = $("#setting-claude-route-model");
+  if (claudeRoute && document.activeElement !== claudeRoute) claudeRoute.value = s.claude_code_model || "haiku";
+
   if (res.llm_providers) {
     const llm = $("#setting-llm-provider");
     if (llm) fillSelect(llm, llmOptions(res.llm_providers), llmValue(s.llm_provider, s.llm_model));
     const quick = $("#overview-model-select");
-    if (quick && document.activeElement !== quick) fillSelect(quick, llmOptions(res.llm_providers), llmValue(s.llm_provider, s.llm_model));
+    if (quick && document.activeElement !== quick) {
+      fillSelect(quick, llmOptions(res.llm_providers), llmValue(s.llm_provider, s.llm_model));
+      describeModelChoice(quick.value);
+    }
     const mem = $("#setting-memory-llm-provider");
     if (mem) {
       const memValue = !s.memory_llm_provider || s.memory_llm_provider === "inherit" ? "inherit" : llmValue(s.memory_llm_provider, s.memory_llm_model);
@@ -1106,6 +1342,7 @@ async function saveSettings(extra = {}) {
     memory_llm_provider: value("#setting-memory-llm-provider") || "inherit",
     tts_provider: value("#setting-tts-provider") || "kokoro",
     tts_voice: value("#setting-voice-select"),
+    claude_code_model: value("#setting-claude-route-model") || "haiku",
     ...extra,
   };
   const res = await ipc("update_provider_config", payload);
@@ -1116,6 +1353,22 @@ async function saveSettings(extra = {}) {
   notify("Saved.", { timeout: 1800 });
   loadStatus();
   return res;
+}
+
+function initVoiceSamples() {
+  const send = (count, button, message) => withBusy(button, null, async () => {
+    const res = await ipc("set_voice_sampling", { count });
+    if (!res.success) {
+      notify(res.error || "Couldn't change voice recording.", { tone: "error" });
+      return;
+    }
+    notify(message);
+    loadStatus();
+  });
+  $("#btn-voice-samples")?.addEventListener("click", (e) =>
+    send(30, e.currentTarget, "Recording your next 30 commands for testing. Talk to Jarvis as usual."));
+  $("#btn-voice-samples-stop")?.addEventListener("click", (e) =>
+    send(0, e.currentTarget, "Stopped recording. Samples you already made are kept."));
 }
 
 function initStatusActions() {
@@ -1134,19 +1387,61 @@ function initStatusActions() {
   }));
 }
 
+/*
+ * Call `commit` once a select has settled. Arrow keys on a closed <select> fire "change" on every
+ * step, which would switch models mid-browse: keyboard changes wait for Enter or leaving the field.
+ */
+function onSettledChange(select, commit) {
+  if (!select) return;
+  let keyboard = false;
+  let pending = false;
+  let committed = select.value;
+  const fire = () => {
+    pending = false;
+    if (select.value !== committed) {
+      const previous = committed;
+      committed = select.value;
+      commit(select.value, previous);
+    }
+  };
+  select.addEventListener("keydown", (e) => {
+    keyboard = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"].includes(e.key) || /^.$/.test(e.key);
+    if (e.key === "Enter" && pending) fire();
+  });
+  select.addEventListener("pointerdown", () => { keyboard = false; });
+  select.addEventListener("change", () => { if (keyboard) pending = true; else fire(); });
+  select.addEventListener("blur", () => { if (pending) fire(); });
+  select.addEventListener("focus", () => { committed = select.value; });
+}
+
 function initSettings() {
-  // Overview's model switch mirrors the Settings field and saves through it.
-  $("#overview-model-select")?.addEventListener("change", (e) => {
+  // Overview's model switch mirrors the Settings field and saves through it, with Undo.
+  const quick = $("#overview-model-select");
+  onSettledChange(quick, (value, previous) => {
     const main = $("#setting-llm-provider");
-    if (main) main.value = e.target.value;
-    saveSettings().then((res) => { if (res.success) notify(`Now thinking with ${e.target.value.split(":").slice(1).join(":") || e.target.value}.`); });
+    if (main) main.value = value;
+    describeModelChoice(value);
+    saveSettings().then((res) => {
+      if (!res.success) return;
+      const label = quick.selectedOptions[0]?.textContent || value;
+      notify(`Now thinking with ${label}.`, {
+        actionLabel: "Undo",
+        timeout: 6000,
+        onAction: () => {
+          quick.value = previous;
+          if (main) main.value = previous;
+          describeModelChoice(previous);
+          saveSettings();
+        },
+      });
+    });
   });
   $("#setting-llm-provider")?.addEventListener("change", (e) => {
-    const quick = $("#overview-model-select");
     if (quick) quick.value = e.target.value;
+    describeModelChoice(e.target.value);
   });
-  ["#setting-stt-provider", "#setting-llm-provider", "#setting-memory-llm-provider", "#setting-voice-select"].forEach((id) => {
-    $(id)?.addEventListener("change", () => saveSettings());
+  ["#setting-stt-provider", "#setting-llm-provider", "#setting-memory-llm-provider", "#setting-voice-select", "#setting-claude-route-model"].forEach((id) => {
+    onSettledChange($(id), () => saveSettings());
   });
 
   $("#setting-tts-provider")?.addEventListener("change", async (e) => {
@@ -1293,6 +1588,47 @@ function initKeybindRecorder() {
   }, true);
 }
 
+/* ---------- Live events from the daemon ---------- */
+
+/* What Jarvis just heard, shown before the turn is logged; replaced by the logged turn. */
+function showPendingExchange(text, alternatives) {
+  const box = $("#latest-exchange");
+  if (!box || !text) return;
+  box.classList.remove("is-failed");
+  const pending = { heard_alternatives: alternatives || [] };
+  const heard = heardLine(pending);
+  box.replaceChildren(
+    el("div", { class: "latest-when" }, [el("span", { text: "Just now" })]),
+    el("q", { class: "latest-query", text }),
+    ...(heard ? [heard] : []),
+    el("p", { class: "latest-reply muted", text: "Thinking…" }),
+  );
+}
+
+/* Called by the daemon (DashboardWindow.push_event) as the voice loop runs. */
+window.jarvisEvent = (name, payload = {}) => {
+  const liveStates = { listening: "listening", thinking: "thinking", turn_logged: "speaking", idle: "idle" };
+  if (state.status && liveStates[name]) {
+    state.status.voice_state = liveStates[name];
+    renderStatus(state.status);
+  }
+  if (name === "heard") showPendingExchange(payload.text, payload.alternatives);
+  if (name.startsWith("task_")) {
+    upsertTask(payload.task);
+    renderTasks();
+  }
+  if (name === "task_finished") {
+    state.transcriptsSignature = "";
+    loadTranscripts();
+  }
+  if (name === "turn_logged" || name === "idle") {
+    // Force a re-render even if the list looks unchanged, so a pending exchange never sticks.
+    state.transcriptsSignature = "";
+    loadTranscripts();
+  }
+  if (name === "idle" || name === "turn_logged" || name === "status_changed") loadStatus();
+};
+
 /* ---------- Boot ---------- */
 
 function safely(name, fn) {
@@ -1307,12 +1643,14 @@ function boot() {
   safely("navigation", initNavigation);
   safely("keybind recorder", initKeybindRecorder);
   safely("transcripts", initTranscripts);
+  safely("background tasks", loadTasks);
   safely("memory profile", initMemoryProfile);
   safely("tool builder", initToolBuilder);
   safely("macro form", initMacroForm);
   safely("fast paths", initFastPaths);
   safely("settings", initSettings);
   safely("status actions", initStatusActions);
+  safely("voice samples", initVoiceSamples);
 
   // First paint: load everything the visible page and the status line need.
   loadStatus();

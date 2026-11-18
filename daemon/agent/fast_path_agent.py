@@ -9,9 +9,26 @@ from typing import Dict, Any, List, Optional
 from daemon.agent.fast_path_manager import FastPathManager
 
 
+# Tools whose arguments are free-form or depend on the moment: replaying them blindly is unsafe.
+NEVER_LEARN = {"execute_terminal_command", "Bash", "Edit", "web_search", "cancel_task", "background_task",
+               "update_memory_profile", "system_power_control"}
+
+
+def _app_exists(app_name: str) -> bool:
+    try:
+        from daemon.tools.app_scanner import get_app_scanner
+        return get_app_scanner().find_app(app_name) is not None
+    except Exception:
+        return False
+
+
 class FastPathCreatorAgent:
     def __init__(self, fast_path_manager: Optional[FastPathManager] = None):
         self.fast_path_mgr = fast_path_manager or FastPathManager()
+        try:
+            self.fast_path_mgr.prune_unlaunchable_app_rules()
+        except Exception as err:
+            print(f"[FastPathCreatorAgent Warning] Couldn't check learned app shortcuts: {err}", flush=True)
 
     def update_fast_paths(
         self,
@@ -38,6 +55,17 @@ class FastPathCreatorAgent:
             spoken = t.get("spoken_response", "")
 
             if not q or tool in ["none", "None", "", "error"] or len(q) < 3:
+                continue
+
+            # Only replay what worked, and only simple, safe tools: never a shell command the model
+            # wrote, a background task, or an app the launcher can't actually find.
+            if t.get("outcome") in ("failed", "cancelled") or t.get("background_task"):
+                continue
+            if t.get("outcome") is None and (t.get("execution_stderr") or "").strip():
+                continue
+            if tool in NEVER_LEARN or "->" in str(tool):
+                continue
+            if tool == "app_launcher" and not _app_exists((tool_args or {}).get("app_name", "")):
                 continue
 
             q_norm = q.lower().strip().rstrip(".!?")

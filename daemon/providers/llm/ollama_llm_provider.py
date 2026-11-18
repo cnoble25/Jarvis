@@ -10,6 +10,13 @@ from daemon.providers.base import BaseLLMProvider
 from daemon.providers.factory import ProviderRegistry
 
 
+def _context_size(messages: List[Dict[str, Any]]) -> int:
+    chars = sum(len(str(m.get("content", ""))) for m in messages)
+    needed = int(chars / 3.5) + 512
+    step = 2048
+    return max(4096, min(32768, ((needed + step - 1) // step) * step))
+
+
 @ProviderRegistry.register_llm("ollama")
 @ProviderRegistry.register_llm("ollama_llm")
 class OllamaLLMProvider(BaseLLMProvider):
@@ -58,9 +65,12 @@ class OllamaLLMProvider(BaseLLMProvider):
             "format": "json",
             "stream": False,
             "think": False,
-            "keep_alive": "10m",
+            "keep_alive": "30m",
             "options": {
-                "num_ctx": 4096,
+                # Size the context to the prompt: a fixed 4096 silently truncated Jarvis's ~7k-token
+                # system prompt (and its command list). ~3.5 chars per token, +512 for the reply,
+                # rounded up to a 2048 step so Ollama can reuse the loaded context between requests.
+                "num_ctx": _context_size(messages),
                 "num_predict": 300,
                 "temperature": 0.2
             }

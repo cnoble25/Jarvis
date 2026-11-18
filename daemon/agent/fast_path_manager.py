@@ -195,6 +195,23 @@ class FastPathManager:
             self.learned_rules = []
         return self.learned_rules
 
+    def prune_unlaunchable_app_rules(self) -> List[str]:
+        """
+        Remove learned "open X" shortcuts whose app doesn't exist: they came from a loose fuzzy match
+        ("start us on movie mode" -> Peaks of Yore) and would keep opening the wrong thing.
+        """
+        from daemon.tools.app_scanner import get_app_scanner
+        scanner = get_app_scanner()
+        removed = [r for r in self.learned_rules
+                   if r.get("tool") == "app_launcher" and not scanner.find_app(str(r.get("args", {}).get("app_name", "")))]
+        if removed:
+            ids = {r.get("id") for r in removed}
+            self.learned_rules = [r for r in self.learned_rules if r.get("id") not in ids]
+            for r in removed:
+                print(f"[FastPathManager] Removed learned shortcut {r.get('triggers')} -> app '{r.get('args', {}).get('app_name')}' (no such app).", flush=True)
+            self.save_learned_rules()
+        return [r.get("id") for r in removed]
+
     def save_learned_rules(self):
         """
         Persists learned fast-path rules to disk.

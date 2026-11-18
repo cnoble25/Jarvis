@@ -730,8 +730,193 @@ body[data-voice-state="speaking"] .status-label {
 
 .latest-body {
   display: grid;
-  grid-template-columns: 112px 1fr;
+  grid-template-columns: 112px minmax(0, 1fr);
+  grid-template-areas:
+    "when query"
+    ".    heard"
+    ".    reply"
+    ".    meta"
+    ".    hint";
   gap: 2px var(--s-4);
+}
+
+.latest-body > .empty-state,
+.latest-body > .muted {
+  grid-column: 1 / -1;
+  grid-area: auto;
+}
+
+.latest-body .heard-line { grid-area: heard; }
+.latest-body .latest-reply { grid-area: reply; }
+.latest-body .latest-meta { grid-area: meta; }
+.latest-body .latest-hint { grid-area: hint; }
+
+.latest-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1) var(--s-3);
+  margin-top: var(--s-1);
+  font-size: var(--t-meta);
+  color: var(--text-3);
+}
+
+/* Background tasks: same two columns as the last exchange, status where the time sits. */
+.tasks > .section-title {
+  margin-bottom: var(--s-1);
+  font-size: var(--t-meta);
+  color: var(--text-3);
+}
+
+.task-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--s-4);
+}
+
+.task {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  grid-template-areas:
+    "status head"
+    ".      steps"
+    ".      result";
+  gap: var(--s-1) var(--s-4);
+}
+
+.task-status {
+  grid-area: status;
+  display: flex;
+  flex-direction: column;
+  padding-top: 2px;
+  font-size: var(--t-meta);
+  color: var(--text-3);
+}
+
+.task-state {
+  font-weight: 700;
+  color: var(--silt);
+}
+
+.task.is-done .task-state { color: var(--sage); }
+.task.is-failed .task-state { color: var(--coral-text); }
+.task.is-cancelled .task-state { color: var(--text-3); }
+
+.task-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.task-head {
+  grid-area: head;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-1) var(--s-3);
+  min-width: 0;
+  font-size: var(--t-meta);
+}
+
+.task-title {
+  flex: 1 1 260px;
+  min-width: 0;
+  font-size: var(--t-lead);
+  font-weight: 700;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.task-cancel {
+  margin-left: auto;
+}
+
+.task-steps {
+  grid-area: steps;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+}
+
+.task-step {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  column-gap: var(--s-2);
+  align-items: baseline;
+  color: var(--text-2);
+}
+
+.task-step::before {
+  content: "";
+  grid-row: 1 / span 2;
+  align-self: start;
+  width: 10px;
+  height: 3px;
+  margin-top: 0.6em;
+  border-radius: 2px;
+  background: var(--sage-deep);
+}
+
+.task-step.is-running { color: var(--ramp-10); }
+.task-step.is-running::before {
+  background: var(--silt);
+  animation: task-pulse 1.4s ease-in-out infinite;
+}
+.task-step.is-failed { color: var(--coral-text); }
+.task-step.is-failed::before { background: var(--coral); }
+
+.task-step-detail {
+  grid-column: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-code);
+  font-size: var(--t-meta);
+  color: var(--text-3);
+}
+
+.task-result {
+  grid-area: result;
+  margin: var(--s-1) 0 0;
+  font-size: var(--t-lead);
+  color: var(--text-2);
+}
+
+.task.is-failed .task-result { color: var(--coral-text); }
+
+@keyframes task-pulse {
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-step.is-running::before { animation: none; }
+}
+
+/* Text with the outcome dash, not a pill: it wraps cleanly when the confidence note is long. */
+.route-tag {
+  color: var(--silt);
+}
+
+.route-tag::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 3px;
+  margin-right: 6px;
+  vertical-align: middle;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.route-tag.is-unsure {
+  color: var(--amber-text);
 }
 
 .latest-body > .muted,
@@ -740,25 +925,24 @@ body[data-voice-state="speaking"] .status-label {
 }
 
 .latest-when {
-  grid-row: 1 / span 3;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--s-1);
+  grid-area: when;
   padding-top: 8px;
   font-size: var(--t-meta);
   color: var(--text-3);
 }
 
-.latest-tool {
-  font-size: var(--t-meta);
-  color: var(--text-3);
-}
 
 .latest-query {
+  grid-area: query;
   font-size: var(--t-display);
   font-weight: 700;
   line-height: 1.2;
+  /* Long sentences scale down and cap at three lines; the full text is in the tooltip and Conversations. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
   letter-spacing: -0.01em;
   quotes: "“" "”";
 }
@@ -903,6 +1087,20 @@ body[data-voice-state="speaking"] .status-label {
   color: var(--coral-text);
 }
 
+/* The most dangerous tier reads above High: filled, bold, not colour alone. */
+.risk-critical {
+  background: var(--coral-ground);
+  border-color: var(--coral);
+  color: var(--coral-text);
+  font-weight: 700;
+}
+
+.risk-critical::before {
+  content: "!";
+  margin-right: 4px;
+  font-weight: 700;
+}
+
 .risk-medium {
   border-color: var(--amber-edge);
   color: var(--amber-text);
@@ -1045,8 +1243,13 @@ textarea.input {
 }
 
 .status-model {
-  flex: 0 1 260px;
+  flex: 0 1 300px;
   min-width: 200px;
+}
+
+.status-model-where {
+  font-size: var(--t-meta);
+  color: var(--text-3);
 }
 
 .select-compact {
@@ -1328,6 +1531,16 @@ textarea.input {
 
 .turn.is-failed .turn-reply {
   color: var(--coral-text);
+}
+
+.heard-line {
+  font-size: var(--t-meta);
+  color: var(--text-3);
+  quotes: "“" "”";
+}
+
+.heard-line q {
+  color: var(--text-2);
 }
 
 .turn-meta {
@@ -1689,4 +1902,29 @@ textarea.input {
   .toast {
     animation: none;
   }
+}
+
+/* Pending exchange: what was heard, before Jarvis has answered. */
+.latest-reply.muted {
+  color: var(--text-3);
+}
+
+/* Long spoken requests shouldn't shout. */
+.latest-query.is-medium { font-size: var(--t-title); }
+.latest-query.is-long { font-size: var(--t-lead); line-height: 1.35; }
+
+/* Real transcripts contain URLs, snake_case ids and long words: never let them push the page sideways. */
+.row-query,
+.row-reply,
+.turn-query,
+.turn-reply,
+.latest-reply,
+.heard-line,
+.fix-hint,
+.turn-meta code,
+.latest-meta code,
+.rule-target code,
+.trigger-list li {
+  overflow-wrap: anywhere;
+  min-width: 0;
 }

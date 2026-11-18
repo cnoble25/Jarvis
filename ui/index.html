@@ -72,7 +72,8 @@
         </div>
         <div class="status-model">
           <label for="overview-model-select">Thinking with</label>
-          <select id="overview-model-select" class="select select-compact"><option>Loading…</option></select>
+          <select id="overview-model-select" class="select select-compact" aria-describedby="overview-model-where"><option>Loading…</option></select>
+          <span id="overview-model-where" class="status-model-where"></span>
         </div>
       </div>
 
@@ -92,6 +93,11 @@
           <span class="delta-source" id="delta-source"></span>
           <ol id="delta-legend" class="delta-legend"></ol>
         </div>
+      </section>
+
+      <section class="tasks" id="tasks-section" aria-labelledby="tasks-title" hidden>
+        <h2 id="tasks-title" class="section-title">Working on</h2>
+        <ol id="task-list" class="task-list" aria-live="polite"></ol>
       </section>
 
       <section class="latest" aria-labelledby="latest-title">
@@ -333,6 +339,15 @@
           <p class="help">Local models run on this computer. Cloud models need an API key below.</p>
         </div>
         <div class="field">
+          <label for="setting-claude-route-model">When you say “Hey Claude…”</label>
+          <select id="setting-claude-route-model" class="select" aria-describedby="claude-route-help">
+            <option value="haiku">Claude Haiku: fastest</option>
+            <option value="sonnet">Claude Sonnet: smarter, slower</option>
+            <option value="opus">Claude Opus: most capable, slowest</option>
+          </select>
+          <p class="help" id="claude-route-help">Starting a request with “Claude”, “Hey Claude” or “Ask Claude”, or ending it with “…, Claude?”, sends just that request to Claude Code, using your own Claude Code login. Everything else stays on the model above.</p>
+        </div>
+        <div class="field">
           <label for="setting-stt-provider">Hearing (speech to text)</label>
           <select id="setting-stt-provider" class="select"><option>Loading…</option></select>
         </div>
@@ -340,6 +355,16 @@
           <label for="setting-memory-llm-provider">Learning (memory profile and shortcut phrases)</label>
           <select id="setting-memory-llm-provider" class="select"><option>Loading…</option></select>
         </div>
+      </section>
+
+      <section class="settings-section" aria-labelledby="set-samples-title">
+        <h2 id="set-samples-title" class="section-title">Test hearing on your voice</h2>
+        <p class="help">Keep the audio of your next commands, with what Jarvis heard, so speech recognition can be checked against your real voice and mic. Saved only on this computer, in <code id="voice-samples-dir">~/.local/share/jarvis/voice_samples</code>; never backed up.</p>
+        <div class="button-row">
+          <button type="button" id="btn-voice-samples" class="btn btn-secondary">Record my next 30 commands</button>
+          <button type="button" id="btn-voice-samples-stop" class="btn btn-quiet" hidden>Stop recording</button>
+        </div>
+        <p class="help" id="voice-samples-status" aria-live="polite"></p>
       </section>
 
       <section class="settings-section" aria-labelledby="set-voice-title">

@@ -5,8 +5,11 @@ and executes custom JSON tool templates safely.
 """
 
 import os
+import signal
 import subprocess
 import re
+import threading
+import time
 import urllib.request
 import urllib.parse
 from typing import Dict, Any, Optional
@@ -20,8 +23,47 @@ class ExecutionEngine:
         """
         self.registry = registry if registry is not None else ToolRegistry()
         self.dry_run = dry_run
+        # Per-thread run context: a background task sets a cancel event and a longer command timeout
+        # for its own thread without affecting a voice request running at the same time.
+        self._local = threading.local()
 
-    def execute_bash(self, command: str, cwd: Optional[str] = None, timeout: int = 30) -> Dict[str, Any]:
+    TERMINAL_TIMEOUT = 20  # seconds, for a terminal command run while the user waits
+
+    def set_run_context(self, cancel_event: Optional[threading.Event] = None, command_timeout: Optional[int] = None):
+        self._local.cancel = cancel_event
+        self._local.command_timeout = command_timeout
+
+    def _run_cancellable(self, command: str, cwd: Optional[str], timeout: int) -> Dict[str, Any]:
+        """Run a shell command in its own process group; stop it on timeout or when the task is cancelled."""
+        cancel = getattr(self._local, "cancel", None)
+        proc = subprocess.Popen(command, shell=True, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                stdin=subprocess.DEVNULL, text=True, start_new_session=True)
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                out, err = proc.communicate(timeout=0.25)
+                return {"success": proc.returncode == 0, "exit_code": proc.returncode,
+                        "stdout": out.strip(), "stderr": err.strip(),
+                        "spoken_confirmation": f"Executed command: {command[:40]}..."}
+            except subprocess.TimeoutExpired:
+                cancelled = bool(cancel and cancel.is_set())
+                if not cancelled and time.monotonic() < deadline:
+                    continue
+                for sig in (signal.SIGTERM, signal.SIGKILL):
+                    try:
+                        os.killpg(proc.pid, sig)
+                    except ProcessLookupError:
+                        break
+                    try:
+                        proc.communicate(timeout=3)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
+                if cancelled:
+                    return {"success": False, "exit_code": 130, "stdout": "", "stderr": "Cancelled.", "cancelled": True}
+                return {"success": False, "exit_code": 124, "stdout": "", "stderr": f"Command timed out after {timeout} seconds."}
+
+    def execute_bash(self, command: str, cwd: Optional[str] = None, timeout: Optional[int] = None) -> Dict[str, Any]:
 
         """
         Executes a shell command (Claude Code 'Bash' meta-tool).
@@ -33,6 +75,7 @@ class ExecutionEngine:
         """
         if not command or not command.strip():
             return {"success": False, "exit_code": 1, "stdout": "", "stderr": "Empty command provided."}
+        timeout = timeout or getattr(self._local, "command_timeout", None) or 30
 
         print(f"[ExecutionEngine.Bash] Executing: {command}", flush=True)
         # For background process launching (commands ending with '&'),
@@ -59,24 +102,7 @@ class ExecutionEngine:
                 return {"success": False, "exit_code": 1, "stdout": "", "stderr": str(e)}
 
         try:
-            process = subprocess.run(
-                command,
-                shell=True,
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                timeout=timeout
-            )
-            
-            return {
-                "success": process.returncode == 0,
-                "exit_code": process.returncode,
-                "stdout": process.stdout.strip(),
-                "stderr": process.stderr.strip(),
-                "spoken_confirmation": f"Executed command: {command[:40]}..."
-            }
-        except subprocess.TimeoutExpired:
-            return {"success": False, "exit_code": 124, "stdout": "", "stderr": f"Command timed out after {timeout} seconds."}
+            return self._run_cancellable(command, cwd, timeout)
         except Exception as e:
             return {"success": False, "exit_code": 1, "stdout": "", "stderr": str(e)}
 
@@ -317,7 +343,7 @@ class ExecutionEngine:
                     }
 
             print(f"[ExecutionEngine.execute_terminal_command] Running: {cmd}", flush=True)
-            res = self.execute_bash(cmd, timeout=20)
+            res = self.execute_bash(cmd, timeout=getattr(self._local, "command_timeout", None) or self.TERMINAL_TIMEOUT)
             
             if res.get("success"):
                 if explanation:
@@ -434,19 +460,30 @@ class ExecutionEngine:
             from .app_scanner import get_app_scanner
             scanner = get_app_scanner()
 
-            # Safeguard against small LLM hallucinations (e.g. LLM passing 'Firefox' when user query was 'Open Discord')
+            # The model sometimes names a different app than the user did ("Firefox" for "open Discord"):
+            # trust the app named in the user's own words when there is one.
             if raw_q and app_query.lower() not in raw_q:
-                match = re.search(r'(?:open|launch|start|run)\s+(.+)', raw_q)
-                if match:
-                    extracted_app = match.group(1).strip().rstrip('.!')
-                    cmd_override, name_override = scanner.resolve_app_launcher_command(extracted_app)
-                    # Check if extracted app is a valid installed app
-                    if name_override and (name_override.lower() in raw_q or extracted_app in name_override.lower()):
-                        print(f"[ExecutionEngine.app_launcher] Corrected LLM hallucination '{app_query}' -> '{name_override}' from raw query '{raw_q}'", flush=True)
-                        app_query = extracted_app
+                match = re.search(r'(?:open|launch|start|run|pull\s+up|bring\s+up)\s+(.+)', raw_q)
+                if match and scanner.find_app(match.group(1)):
+                    print(f"[ExecutionEngine.app_launcher] Using the app from the request ('{match.group(1)}') instead of '{app_query}'", flush=True)
+                    app_query = match.group(1)
 
             cmd, app_display_name = scanner.resolve_app_launcher_command(app_query)
-            print(f"[ExecutionEngine.app_launcher] Fuzzy matched query '{app_query}' -> '{app_display_name}' ({cmd})", flush=True)
+            if not cmd:  # maybe installed since Jarvis started
+                scanner.scan_installed_apps()
+                cmd, app_display_name = scanner.resolve_app_launcher_command(app_query)
+            if not cmd:
+                name = scanner.clean_app_query(app_query) or app_query
+                print(f"[ExecutionEngine.app_launcher] No installed app matches '{app_query}'.", flush=True)
+                return {
+                    "success": False,
+                    "exit_code": 1,
+                    "stdout": "",
+                    "stderr": f"No installed app matches '{name}'. If it's a website, open its URL with "
+                              f"execute_terminal_command (xdg-open https://...).",
+                    "spoken_confirmation": f"I couldn't find an app called {name} on this computer.",
+                }
+            print(f"[ExecutionEngine.app_launcher] Matched '{app_query}' -> '{app_display_name}' ({cmd})", flush=True)
             res = self.execute_bash(cmd)
             res["spoken_confirmation"] = f"Opened {app_display_name}."
             return res
@@ -655,10 +692,10 @@ class ExecutionEngine:
 
         template = tool.execution.template
         
-        # Interpolate template string: e.g., "gtk-launch '{app_name}'" -> "gtk-launch 'code'"
-        interpolated_cmd = template
-        for key, val in args.items():
-            interpolated_cmd = interpolated_cmd.replace(f"{{{key}}}", str(val))
+        # Interpolate template string: e.g., "gtk-launch '{app_name}'" -> "gtk-launch 'code'".
+        # Values are escaped for the quoting context they land in, so spoken text can never
+        # break out of the command ("Don't Stop Me Now", or anything containing ; $ ` " ').
+        interpolated_cmd = interpolate_shell_template(template, args)
 
         # Check for un-interpolated required placeholders
         missing_placeholders = re.findall(r"\{([a-zA-Z0-9_]+)\}", interpolated_cmd)
@@ -682,3 +719,40 @@ class ExecutionEngine:
             res["spoken_confirmation"] = f"Executed {tool.name}."
 
         return res
+
+def interpolate_shell_template(template: str, args: Dict[str, Any]) -> str:
+    """
+    Replace {name} placeholders with argument values, escaped for where each placeholder sits:
+    inside '...' (single-quote escape), inside "..." (escape \\ " $ `), or bare (shlex.quote).
+    Placeholders without a matching argument are left as-is so the caller can report them.
+    """
+    import shlex
+
+    out = []
+    quote = None  # None, "'" or '"'
+    i = 0
+    while i < len(template):
+        ch = template[i]
+        match = re.match(r"\{([a-zA-Z0-9_]+)\}", template[i:])
+        if match and match.group(1) in args:
+            value = str(args[match.group(1)])
+            if quote == "'":
+                out.append(value.replace("'", "'\\''"))
+            elif quote == '"':
+                out.append(re.sub(r'([\\"$`])', r"\\\1", value))
+            else:
+                out.append(shlex.quote(value))
+            i += len(match.group(0))
+            continue
+        if ch == "\\" and quote != "'" and i + 1 < len(template):
+            out.append(template[i:i + 2])
+            i += 2
+            continue
+        if ch in ("'", '"'):
+            if quote is None:
+                quote = ch
+            elif quote == ch:
+                quote = None
+        out.append(ch)
+        i += 1
+    return "".join(out)
