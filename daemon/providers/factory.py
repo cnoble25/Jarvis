@@ -290,19 +290,25 @@ class ProviderFactory:
         # 3. TTS Provider (only re-instantiate if TTS provider or voice changed)
         tts_id = self.settings.get("tts_provider", "kokoro")
         voice = self.settings.get("tts_voice", "af_kore")
+        tts_model = self.settings.get("elevenlabs_model")  # only ElevenLabs takes a model
         curr_tts_id = getattr(self, "_tts_id", None)
         curr_tts_voice = getattr(self, "_tts_voice", None)
 
-        if self.tts_provider is None or curr_tts_id != tts_id or curr_tts_voice != voice:
+        if (self.tts_provider is None or curr_tts_id != tts_id or curr_tts_voice != voice
+                or getattr(self, "_tts_model", None) != tts_model):
             tts_cls = ProviderRegistry.get_tts_provider_class(tts_id)
             if tts_cls:
-                self.tts_provider = tts_cls(voice=voice)
+                try:
+                    self.tts_provider = tts_cls(voice=voice, model=tts_model)
+                except TypeError:
+                    self.tts_provider = tts_cls(voice=voice)
             else:
                 print(f"[ProviderFactory Warning] TTS provider '{tts_id}' not registered. Falling back to kokoro.", flush=True)
                 from daemon.providers.tts.kokoro_tts_provider import KokoroTTSProvider
                 self.tts_provider = KokoroTTSProvider(voice=voice)
             self._tts_id = tts_id
             self._tts_voice = voice
+            self._tts_model = tts_model
 
         print(f"[ProviderFactory] Active STT: {self.stt_provider.get_provider_info()['name']}", flush=True)
         print(f"[ProviderFactory] Active Main LLM: {self.llm_provider.get_provider_info()['name']}", flush=True)
