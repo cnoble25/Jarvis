@@ -5,21 +5,17 @@ Manages dynamic provider instantiation and live configuration hot-swapping.
 
 import os
 import json
+import importlib
+import pkgutil
 from pathlib import Path
 from typing import Dict, Any, Optional
 from daemon.providers.base import BaseSTTProvider, BaseLLMProvider, BaseTTSProvider
-from daemon.providers.stt.faster_whisper_provider import FasterWhisperSTTProvider
-from daemon.providers.stt.gemini_stt_provider import GeminiVoiceSTTProvider
-from daemon.providers.llm.ollama_llm_provider import OllamaLLMProvider
-from daemon.providers.llm.gemini_llm_provider import GeminiLLMProvider
-from daemon.providers.llm.anthropic_llm_provider import AnthropicLLMProvider
-from daemon.providers.tts.kokoro_tts_provider import KokoroTTSProvider
 
 SETTINGS_FILE = Path(os.path.expanduser("~/.config/jarvis/settings.json"))
 
 DEFAULT_SETTINGS = {
     "stt_provider": "faster_whisper",
-    "stt_model": "base.en",
+    "stt_model": "large-v3-turbo",
     "llm_provider": "ollama",
     "llm_model": "qwen3.5:9b",
     "memory_llm_provider": "inherit",
@@ -29,6 +25,136 @@ DEFAULT_SETTINGS = {
     "gemini_api_key": "",
     "anthropic_api_key": ""
 }
+
+
+class ProviderRegistry:
+    _stt_registry: Dict[str, type] = {}
+    _tts_registry: Dict[str, type] = {}
+    _llm_registry: Dict[str, type] = {}
+    _discovered: bool = False
+
+    @classmethod
+    def register_stt(cls, provider_id: str):
+        def decorator(subclass):
+            if provider_id in cls._stt_registry and cls._stt_registry[provider_id] != subclass:
+                print(f"[ProviderRegistry Warning] Overwriting STT provider '{provider_id}'", flush=True)
+            cls._stt_registry[provider_id] = subclass
+            return subclass
+        return decorator
+
+    @classmethod
+    def register_tts(cls, provider_id: str):
+        def decorator(subclass):
+            if provider_id in cls._tts_registry and cls._tts_registry[provider_id] != subclass:
+                print(f"[ProviderRegistry Warning] Overwriting TTS provider '{provider_id}'", flush=True)
+            cls._tts_registry[provider_id] = subclass
+            return subclass
+        return decorator
+
+    @classmethod
+    def register_llm(cls, provider_id: str):
+        def decorator(subclass):
+            if provider_id in cls._llm_registry and cls._llm_registry[provider_id] != subclass:
+                print(f"[ProviderRegistry Warning] Overwriting LLM provider '{provider_id}'", flush=True)
+            cls._llm_registry[provider_id] = subclass
+            return subclass
+        return decorator
+
+    @classmethod
+    def discover_providers(cls):
+        if cls._discovered:
+            return
+        cls._discovered = True
+        base_dir = Path(__file__).parent
+        for category in ["stt", "tts", "llm"]:
+            cat_dir = base_dir / category
+            if cat_dir.exists():
+                for mod_info in pkgutil.iter_modules([str(cat_dir)]):
+                    if not mod_info.name.startswith("_"):
+                        try:
+                            importlib.import_module(f"daemon.providers.{category}.{mod_info.name}")
+                        except Exception as e:
+                            print(f"[ProviderRegistry Error] Failed to auto-discover daemon.providers.{category}.{mod_info.name}: {e}", flush=True)
+
+    @classmethod
+    def get_stt_provider_class(cls, provider_id: str) -> Optional[type]:
+        cls.discover_providers()
+        return cls._stt_registry.get(provider_id)
+
+    @classmethod
+    def get_tts_provider_class(cls, provider_id: str) -> Optional[type]:
+        cls.discover_providers()
+        return cls._tts_registry.get(provider_id)
+
+    @classmethod
+    def get_llm_provider_class(cls, provider_id: str) -> Optional[type]:
+        cls.discover_providers()
+        return cls._llm_registry.get(provider_id)
+
+    @staticmethod
+    def _canonical_ids(registry: Dict[str, type]) -> Dict[str, type]:
+        """
+        A provider class may register under several aliases (e.g. 'ElevenLabs', 'elevenlabs_tts', 'elevenlabs').
+        Listings show each class once, under its plainest alias: lowercase first, then shortest.
+        """
+        by_class: Dict[type, list] = {}
+        for pid, pcls in registry.items():
+            by_class.setdefault(pcls, []).append(pid)
+        return {min(pids, key=lambda p: (not p.islower(), len(p))): pcls for pcls, pids in by_class.items()}
+
+    @classmethod
+    def list_stt_providers(cls) -> list[dict[str, Any]]:
+        cls.discover_providers()
+        res = []
+        for pid, pcls in cls._canonical_ids(cls._stt_registry).items():
+            try:
+                inst = pcls.__new__(pcls)
+                info = dict(inst.get_provider_info()) if hasattr(inst, "get_provider_info") else {"id": pid, "name": pid}
+            except Exception:
+                info = {"id": pid, "name": pid, "type": "local"}
+            info["id"] = pid
+            res.append(info)
+        return res
+
+    @classmethod
+    def list_tts_providers(cls) -> list[dict[str, Any]]:
+        cls.discover_providers()
+        res = []
+        for pid, pcls in cls._canonical_ids(cls._tts_registry).items():
+            try:
+                inst = pcls.__new__(pcls)
+                info = dict(inst.get_provider_info()) if hasattr(inst, "get_provider_info") else {"id": pid, "name": pid}
+            except Exception:
+                info = {"id": pid, "name": pid, "type": "local"}
+            info["id"] = pid
+            res.append(info)
+        return res
+
+    @classmethod
+    def list_llm_providers(cls) -> list[dict[str, Any]]:
+        cls.discover_providers()
+        res = []
+        seen = set()
+        for pid, pcls in cls._llm_registry.items():
+            if pcls in seen:
+                continue
+            seen.add(pcls)
+            try:
+                inst = pcls.__new__(pcls)
+                info = dict(inst.get_provider_info()) if hasattr(inst, "get_provider_info") else {"id": pid, "name": pid}
+            except Exception:
+                info = {"id": pid, "name": pid, "type": "cloud"}
+            if "id" not in info:
+                info["id"] = pid
+            if "models" not in info or not info["models"]:
+                if hasattr(pcls, "get_available_models"):
+                    try:
+                        inst_m = pcls.__new__(pcls)
+                        info["models"] = inst_m.get_available_models()
+                    except Exception:
+                        info["models"] = []
+            res.append(info)
+        return res
 
 
 class ProviderFactory:
@@ -43,6 +169,27 @@ class ProviderFactory:
         self.tts_provider: Optional[BaseTTSProvider] = None
 
         self.reload_active_providers()
+
+    def get_available_stt_providers(self) -> list[dict[str, Any]]:
+        return ProviderRegistry.list_stt_providers()
+
+    def get_available_tts_providers(self) -> list[dict[str, Any]]:
+        return ProviderRegistry.list_tts_providers()
+
+    def get_available_llm_providers(self) -> list[dict[str, Any]]:
+        return ProviderRegistry.list_llm_providers()
+
+    def get_voices_for_provider(self, tts_id: str) -> list[str]:
+        if self.tts_provider and getattr(self, "_tts_id", None) == tts_id:
+            return self.tts_provider.get_available_voices()
+        tts_cls = ProviderRegistry.get_tts_provider_class(tts_id)
+        if tts_cls:
+            try:
+                inst = tts_cls()
+                return inst.get_available_voices()
+            except Exception as e:
+                print(f"[ProviderFactory Warning] Failed to inspect voices for TTS provider '{tts_id}': {e}", flush=True)
+        return []
 
     def load_settings(self) -> Dict[str, Any]:
         """
@@ -78,15 +225,21 @@ class ProviderFactory:
             llm_id, submodel = raw_llm_id.split(":", 1)
         else:
             llm_id = raw_llm_id
-            submodel = default_model or ("gemini-3.5-flash-lite" if llm_id == "gemini_llm" else "qwen3.5:9b")
+            submodel = default_model or ("gemini-3.6-flash" if llm_id == "gemini_llm" else "qwen3.5:9b")
 
-        if llm_id == "anthropic_llm":
-            api_key = self.settings.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY", "")
-            return AnthropicLLMProvider(api_key=api_key, model_name=submodel)
-        elif llm_id == "gemini_llm":
-            api_key = self.settings.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY", "")
-            return GeminiLLMProvider(api_key=api_key, model_name=submodel)
+        llm_cls = ProviderRegistry.get_llm_provider_class(llm_id)
+        if llm_cls:
+            if llm_id == "anthropic_llm":
+                api_key = self.settings.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY", "")
+                return llm_cls(api_key=api_key, model_name=submodel)
+            elif llm_id == "gemini_llm":
+                api_key = self.settings.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY", "")
+                return llm_cls(api_key=api_key, model_name=submodel)
+            else:
+                return llm_cls(model_name=submodel)
         else:
+            print(f"[ProviderFactory Warning] LLM provider '{llm_id}' not registered. Falling back to OllamaLLMProvider.", flush=True)
+            from daemon.providers.llm.ollama_llm_provider import OllamaLLMProvider
             return OllamaLLMProvider(model_name=submodel)
 
     def reload_active_providers(self):
@@ -97,15 +250,21 @@ class ProviderFactory:
         
         # 1. STT Provider (only re-instantiate if STT provider or model changed)
         stt_id = self.settings.get("stt_provider", "faster_whisper")
-        stt_model = self.settings.get("stt_model", "base.en")
+        stt_model = self.settings.get("stt_model", "large-v3-turbo")
         curr_stt_id = getattr(self, "_stt_id", None)
         curr_stt_model = getattr(self, "_stt_model", None)
 
         if self.stt_provider is None or curr_stt_id != stt_id or curr_stt_model != stt_model:
-            if stt_id == "gemini_stt":
-                api_key = self.settings.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY", "")
-                self.stt_provider = GeminiVoiceSTTProvider(api_key=api_key)
+            stt_cls = ProviderRegistry.get_stt_provider_class(stt_id)
+            if stt_cls:
+                if stt_id == "gemini_stt":
+                    api_key = self.settings.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY", "")
+                    self.stt_provider = stt_cls(api_key=api_key)
+                else:
+                    self.stt_provider = stt_cls(model_size=stt_model)
             else:
+                print(f"[ProviderFactory Warning] STT provider '{stt_id}' not registered. Falling back to faster_whisper.", flush=True)
+                from daemon.providers.stt.faster_whisper_provider import FasterWhisperSTTProvider
                 self.stt_provider = FasterWhisperSTTProvider(model_size=stt_model)
             self._stt_id = stt_id
             self._stt_model = stt_model
@@ -135,7 +294,13 @@ class ProviderFactory:
         curr_tts_voice = getattr(self, "_tts_voice", None)
 
         if self.tts_provider is None or curr_tts_id != tts_id or curr_tts_voice != voice:
-            self.tts_provider = KokoroTTSProvider(voice=voice)
+            tts_cls = ProviderRegistry.get_tts_provider_class(tts_id)
+            if tts_cls:
+                self.tts_provider = tts_cls(voice=voice)
+            else:
+                print(f"[ProviderFactory Warning] TTS provider '{tts_id}' not registered. Falling back to kokoro.", flush=True)
+                from daemon.providers.tts.kokoro_tts_provider import KokoroTTSProvider
+                self.tts_provider = KokoroTTSProvider(voice=voice)
             self._tts_id = tts_id
             self._tts_voice = voice
 
@@ -166,6 +331,8 @@ class ProviderFactory:
             env_updates["JARVIS_S3_SYNC_ENABLED"] = "true" if new_settings["s3_sync_enabled"] else "false"
         if "s3_bucket_arn" in new_settings and new_settings["s3_bucket_arn"]:
             env_updates["JARVIS_S3_BUCKET_ARN"] = new_settings["s3_bucket_arn"]
+        if "aws_region" in new_settings and new_settings["aws_region"]:
+            env_updates["AWS_REGION"] = new_settings["aws_region"]
         if "aws_access_key_id" in new_settings and new_settings["aws_access_key_id"]:
             env_updates["AWS_ACCESS_KEY_ID"] = new_settings["aws_access_key_id"]
         if "aws_secret_access_key" in new_settings and new_settings["aws_secret_access_key"]:
@@ -187,3 +354,4 @@ def get_provider_factory() -> ProviderFactory:
     if _global_factory is None:
         _global_factory = ProviderFactory()
     return _global_factory
+

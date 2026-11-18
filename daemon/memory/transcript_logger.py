@@ -50,6 +50,9 @@ class TranscriptLogger:
             
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.max_local_turns = max_local_turns
+        # Extra fields for the next logged turn (e.g. the transcription alternatives), set by the daemon.
+        self._next_turn_meta: Dict[str, Any] = {}
+        self._write_lock = threading.RLock()
         self.max_s3_turns = max_s3_turns
 
         # S3 Configuration from environment
@@ -163,7 +166,8 @@ class TranscriptLogger:
         tool_args: Optional[Dict[str, Any]] = None,
         execution_stdout: str = "",
         execution_stderr: str = "",
-        spoken_response: str = ""
+        spoken_response: str = "",
+        meta: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Logs a completed interaction packet to local JSONL transcript.
@@ -182,17 +186,39 @@ class TranscriptLogger:
             "spoken_response": spoken_response,
             "synced_to_s3": False
         }
+        # Explicit meta belongs to this turn (a background task carries its own); otherwise use the pending one.
+        if meta is not None:
+            record.update(meta)
+        elif self._next_turn_meta:
+            record.update(self.pop_next_turn_meta())
 
         log_path = self.get_todays_log_file()
         try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(record) + "\n")
-            print(f"[TranscriptLogger] Turn logged to {log_path.name} (ID: {record['record_id'][:8]})", flush=True)
-            self.prune_local_logs()
+            with self._write_lock:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(record, default=str) + "\n")
+                print(f"[TranscriptLogger] Turn logged to {log_path.name} (ID: {record['record_id'][:8]})", flush=True)
+                self.prune_local_logs()
         except Exception as e:
             print(f"[TranscriptLogger Error] Failed to write transcript log: {e}", flush=True)
 
         return record
+
+    def set_next_turn_meta(self, meta: Dict[str, Any]):
+        """Attach extra fields to the next turn this logger writes."""
+        self._next_turn_meta = dict(meta or {})
+
+    def update_next_turn_meta(self, meta: Dict[str, Any]):
+        """Add fields to the pending metadata without dropping what's already there."""
+        self._next_turn_meta.update(meta or {})
+
+    def peek_next_turn_meta(self) -> Dict[str, Any]:
+        return dict(self._next_turn_meta)
+
+    def pop_next_turn_meta(self) -> Dict[str, Any]:
+        """Take the pending metadata for the turn being processed, so a later turn can't pick it up."""
+        meta, self._next_turn_meta = self._next_turn_meta, {}
+        return dict(meta)
 
     def read_all_transcripts(self) -> List[Dict[str, Any]]:
         """

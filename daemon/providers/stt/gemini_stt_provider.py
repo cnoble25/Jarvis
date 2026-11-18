@@ -9,31 +9,35 @@ import wave
 import json
 import urllib.request
 import base64
-from typing import Dict, Any, Optional
-from daemon.providers.base import BaseSTTProvider
+import numpy as np
+from typing import Dict, Any, Optional, Union
+from daemon.providers.base import AbstractBaseSTTEngine
+from daemon.providers.factory import ProviderRegistry
 
 
-class GeminiVoiceSTTProvider(BaseSTTProvider):
+@ProviderRegistry.register_stt("gemini_stt")
+class GeminiVoiceSTTProvider(AbstractBaseSTTEngine):
     def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-1.5-flash"):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
         self.model_name = model_name
 
-    def _pcm_to_wav(self, pcm_data: bytes, sample_rate: int = 16000) -> bytes:
+    def _pcm_to_wav(self, float32_pcm: np.ndarray, sample_rate: int = 16000) -> bytes:
+        int16_samples = (np.clip(float32_pcm, -1.0, 1.0) * 32767).astype(np.int16)
         wav_io = io.BytesIO()
         with wave.open(wav_io, 'wb') as wf:
             wf.setnchannels(1)
             wf.setsampwidth(2)  # 16-bit
             wf.setframerate(sample_rate)
-            wf.writeframes(pcm_data)
+            wf.writeframes(int16_samples.tobytes())
         return wav_io.getvalue()
 
-    def transcribe_buffer(self, pcm_data: bytes) -> str:
+    def _transcribe_audio(self, float32_pcm: np.ndarray, raw_input: Union[bytes, np.ndarray], sample_rate: int) -> str:
         active_key = self.api_key or os.environ.get("GEMINI_API_KEY", "")
         if not active_key:
             print("[GeminiSTT Error] GEMINI_API_KEY not found in environment, settings, or .env file.", flush=True)
             return ""
 
-        wav_bytes = self._pcm_to_wav(pcm_data)
+        wav_bytes = self._pcm_to_wav(float32_pcm, sample_rate=sample_rate)
         base64_audio = base64.b64encode(wav_bytes).decode("utf-8")
 
         payload = {
@@ -89,3 +93,4 @@ class GeminiVoiceSTTProvider(BaseSTTProvider):
             "type": "cloud",
             "model_name": self.model_name
         }
+

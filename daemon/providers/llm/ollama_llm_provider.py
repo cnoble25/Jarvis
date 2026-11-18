@@ -7,23 +7,36 @@ import json
 import urllib.request
 from typing import Dict, Any, List, Optional
 from daemon.providers.base import BaseLLMProvider
+from daemon.providers.factory import ProviderRegistry
 
 
+def _context_size(messages: List[Dict[str, Any]]) -> int:
+    chars = sum(len(str(m.get("content", ""))) for m in messages)
+    needed = int(chars / 3.5) + 512
+    step = 2048
+    return max(4096, min(32768, ((needed + step - 1) // step) * step))
+
+
+@ProviderRegistry.register_llm("ollama")
+@ProviderRegistry.register_llm("ollama_llm")
 class OllamaLLMProvider(BaseLLMProvider):
     def __init__(self, ollama_url: str = "http://localhost:11434", model_name: str = "qwen3.5:9b"):
         self.ollama_url = ollama_url.rstrip("/")
         self.model_name = model_name
 
     def get_available_models(self) -> List[str]:
+        ollama_url = getattr(self, "ollama_url", "http://localhost:11434").rstrip("/")
         try:
-            req = urllib.request.Request(f"{self.ollama_url}/api/tags")
+            req = urllib.request.Request(f"{ollama_url}/api/tags")
             with urllib.request.urlopen(req, timeout=3) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode())
-                    return [m.get("name") for m in data.get("models", [])]
+                    models = [m.get("name") for m in data.get("models", [])]
+                    if models:
+                        return models
         except Exception:
             pass
-        return []
+        return ["qwen3.5:9b", "qwen2.5:3b", "llama3.2:1b"]
 
     def process_voice_query(
         self,
@@ -52,9 +65,12 @@ class OllamaLLMProvider(BaseLLMProvider):
             "format": "json",
             "stream": False,
             "think": False,
-            "keep_alive": "10m",
+            "keep_alive": "30m",
             "options": {
-                "num_ctx": 4096,
+                # Size the context to the prompt: a fixed 4096 silently truncated Jarvis's ~7k-token
+                # system prompt (and its command list). ~3.5 chars per token, +512 for the reply,
+                # rounded up to a 2048 step so Ollama can reuse the loaded context between requests.
+                "num_ctx": _context_size(messages),
                 "num_predict": 300,
                 "temperature": 0.2
             }
@@ -77,9 +93,12 @@ class OllamaLLMProvider(BaseLLMProvider):
             return {"tool": "none", "args": {}, "spoken_summary": "Error reaching local Ollama server."}
 
     def get_provider_info(self) -> Dict[str, Any]:
+        model = getattr(self, "model_name", "qwen3.5:9b")
+        models = self.get_available_models() if hasattr(self, "get_available_models") else ["qwen3.5:9b", "qwen2.5:3b", "llama3.2:1b"]
         return {
-            "id": "ollama_llm",
-            "name": f"Ollama Local ({self.model_name})",
+            "id": "ollama",
+            "name": f"Ollama Local ({model})",
             "type": "local",
-            "model_name": self.model_name
+            "model_name": model,
+            "models": models
         }

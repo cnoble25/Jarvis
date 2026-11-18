@@ -5,16 +5,41 @@ Custom JSON Tools, Multi-turn Conversation Chain History, and the Voice Loop.
 """
 
 import json
+import re
+import threading
+import time
 import uuid
-from typing import Dict, Any, Optional, List
+from typing import Callable, Dict, Any, Optional, List
 from daemon.tools.registry import ToolRegistry
 from daemon.tools.execution_engine import ExecutionEngine
-from daemon.tts.tts_engine import TTSEngine
 from daemon.memory.transcript_logger import TranscriptLogger
 from daemon.memory.profiler_agent import load_user_profile
-from daemon.providers.base import BaseLLMProvider
+from daemon.providers.base import BaseLLMProvider, BaseTTSProvider
 from daemon.providers.llm.ollama_llm_provider import OllamaLLMProvider
 from daemon.agent.fast_path_manager import FastPathManager
+from daemon.agent.tasks import BackgroundTask, TaskBoard, describe_step
+
+# Background tasks: a request still working after PROMOTE_AFTER seconds, or about to run one of
+# BACKGROUND_TOOLS, gets a quick spoken reply and keeps going in the background.
+PROMOTE_AFTER = 4.0
+COMMAND_GRACE = 1.5
+BACKGROUND_TOOLS = {"execute_terminal_command", "Bash", "Edit"}
+BACKGROUND_MAX_STEPS = 6
+BACKGROUND_COMMAND_TIMEOUT = 300
+OBSERVATION_CHARS = 2000
+INSPECTION_TOOLS = {"web_search", "get_current_time", "system_status", "search_files", "View", "Grep"}
+_TASK_WORDS = r"the\s+(?:task|install\w*|download\w*|command)"
+# "Cancel", "never mind", "stop that", "stop the task" (a bare "stop" is left to media controls).
+CANCEL_PATTERN = re.compile(
+    r"^\s*(?:(?:hey\s+)?jarvis[\s,]*)?(?:(?:cancel|abort|never\s*mind)(?:\s+(?:that|it|this|" + _TASK_WORDS + r"))?"
+    r"|stop\s+(?:that|it|this|" + _TASK_WORDS + r"|what\s+you'?re\s+doing))\s*[.!]*\s*$",
+    re.IGNORECASE,
+)
+# A quick reply must not claim the work is finished before it ran ("I created the folder...").
+CLAIMS_DONE = re.compile(r"^\s*(?:i(?:'ve|\s+have)?\s+\w+ed\b|i\s+(?:made|wrote|put|set|ran|got|found|built|sent|did)\b|done\b|all\s+set\b|\w+ed\s)", re.IGNORECASE)
+# A bare trailing "Claude" after one of these is the object of the sentence, not an address.
+OBJECT_WORDS = {"for", "to", "in", "into", "with", "on", "about", "of", "using", "from", "via", "through",
+                "the", "my", "your", "and", "or"}
 
 
 class AgentOrchestrator:
@@ -24,7 +49,7 @@ class AgentOrchestrator:
         model_name: str = "llama3.2:1b",
         registry: Optional[ToolRegistry] = None,
         engine: Optional[ExecutionEngine] = None,
-        tts: Optional[TTSEngine] = None,
+        tts: Optional[BaseTTSProvider] = None,
         logger: Optional[TranscriptLogger] = None,
         llm_provider: Optional[BaseLLMProvider] = None,
         max_history_turns: int = 10,
@@ -38,13 +63,25 @@ class AgentOrchestrator:
         
         self.registry = registry if registry is not None else ToolRegistry()
         self.engine = engine if engine is not None else ExecutionEngine(self.registry)
-        self.tts = tts  # Optional: Pass TTSEngine instance
+        self.tts = tts  # Optional: Pass BaseTTSProvider instance
+
         self.logger = logger if logger is not None else TranscriptLogger()
         self.fast_path_manager = fast_path_manager or FastPathManager()
         
         self.llm_provider = llm_provider or OllamaLLMProvider(ollama_url=ollama_url, model_name=model_name)
         self.max_history_turns = max_history_turns
         self.conversation_history: List[Dict[str, str]] = []
+
+        # Named routes: a spoken prefix sends one request to another provider ("Hey Claude, ...").
+        # Each entry: (compiled prefix pattern, provider factory, label shown while it thinks).
+        self.routes: List[tuple] = []
+        # Called with the route label when a request is routed, so the HUD can say who's answering.
+        self.route_listener: Optional[Callable[[str], None]] = None
+
+        # Set by the app to run slow requests as background tasks; None keeps everything inline.
+        self.task_board: Optional[TaskBoard] = None
+        self._history_lock = threading.Lock()
+        self.speech_lock = threading.RLock()
 
     def set_llm_provider(self, new_provider: BaseLLMProvider):
         """
@@ -69,7 +106,8 @@ class AgentOrchestrator:
         """
         Clears multi-turn conversation memory.
         """
-        self.conversation_history.clear()
+        with self._history_lock:
+            self.conversation_history.clear()
         print("[AgentOrchestrator] Conversation chain history cleared.", flush=True)
 
     def get_active_model_name(self) -> str:
@@ -153,6 +191,7 @@ class AgentOrchestrator:
             "   - CRITICAL FALLBACK: Do NOT hallucinate tool calls or attempt to use unrelated tools for unsupported tasks! If no tool matches, set \"tool\": \"none\".\n"
             "   - The \"thought\" field MUST be a clear 1-sentence explanation detailing user intent and why the selected tool (or 'none' fallback) was chosen.\n"
             "   - The \"spoken_summary\" MUST be a natural, friendly, voice-ready sentence for Text-to-Speech audio output confirming the action taken or explaining missing capability.\n"
+            "   - For 'execute_terminal_command' the \"spoken_summary\" is spoken BEFORE the command runs, so say what you are doing in the present tense (\"Installing it now.\"), never that it is already done.\n"
             "3. **Audio / Voice Response Formatting Rules**:\n"
             "   - CRITICAL: Remember that your responses are SPOKEN aloud to the user via Text-to-Speech audio, NOT read on a screen! Speak naturally in clear, concise spoken English (1-2 sentences max).\n"
             "   - For INFORMATIONAL / HOW-TO queries (e.g. 'how to install Steam using flatpak' or 'how do I check IP address'): Step 1 uses 'web_search' to find the command. Once the search results arrive in Step 2, DO NOT search again! Set \"tool\": \"none\", \"status\": \"complete\", and synthesize a clear, spoken explanation describing how to do it (e.g. 'To install Steam using Flatpak, open your terminal and run flatpak install flathub com.valvesoftware.Steam.').\n"
@@ -202,57 +241,172 @@ class AgentOrchestrator:
         )
         return prompt
 
+    # ----------------------------------------------------------------------------------------------
+    # Voice requests
+    # ----------------------------------------------------------------------------------------------
+
+    def _speak(self, text: str):
+        if self.tts and text:
+            with self.speech_lock:
+                self.tts.speak(text, block=True)
+
+    def _strip_address(self, user_query: str, m: "re.Match") -> str:
+        """
+        Drop the spoken address ("Hey Claude," at the start, ", Claude?" at the end). A bare trailing
+        name after words like "for" or "with" is the object of the sentence ("...install it for Claude
+        Code?"), so the request is still routed but keeps its full text.
+        """
+        if m.start() > 0 and not re.match(r"\s*(?:,|hey\b)", m.group(0), re.IGNORECASE):
+            prev = re.search(r"(\w+)\W*$", user_query[:m.start()])
+            if prev and prev.group(1).lower() in OBJECT_WORDS:
+                return user_query.strip()
+        return f"{user_query[:m.start()]} {user_query[m.end():]}".strip(" ,") or "Hello"
+
     def process_voice_query(self, user_query: str, speak_output: bool = True, session_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        Processes transcribed voice text through active BaseLLMProvider with multi-turn context.
+        Processes transcribed voice text through the active LLM provider with multi-turn context.
+
+        With a task board attached, the reasoning loop runs on its own thread. If it finishes within
+        PROMOTE_AFTER seconds the answer is spoken as usual; if it is still going (or reaches a terminal
+        command) Jarvis speaks a quick acknowledgement and the task continues in the background,
+        announced through the board's listener when it finishes.
         """
         if session_id is None:
             session_id = str(uuid.uuid4())
+        # This turn's metadata (what speech recognition heard, the route). Taken now so a background
+        # task and the next voice request can't mix up each other's.
+        meta = self.logger.pop_next_turn_meta()
 
         print(f"\n[AgentOrchestrator] Processing voice query: \"{user_query}\"", flush=True)
 
+        if self.task_board and CANCEL_PATTERN.match(user_query):
+            cancelled = self.task_board.cancel()
+            if cancelled:
+                spoken = "Okay, stopping that."
+                print(f"[AgentOrchestrator] Cancelling background task {cancelled.id}: \"{cancelled.title}\"", flush=True)
+                if speak_output:
+                    self._speak(spoken)
+                self.logger.log_turn(session_id, user_query, tool_executed="cancel_task",
+                                     spoken_response=spoken, meta=meta)
+                return {"success": True, "tool": "cancel_task", "final_spoken_summary": spoken}
+
+        # Named routes ("Hey Claude, ...") bypass fast paths and use their own provider for this request.
+        provider = self.llm_provider
+        route_label = None
+        for pattern, make_provider, label in self.routes:
+            m = pattern.search(user_query)
+            if m:
+                routed = make_provider()
+                if routed is not None:
+                    provider, route_label = routed, label
+                    # How sure speech recognition was about the routing word: the probability mass
+                    # of the alternatives that also address the route ("Claude?" vs "on?").
+                    alts = meta.get("heard_alternatives") or []
+                    confidence = None
+                    if len(alts) > 1:
+                        confidence = round(sum(a.get("probability", 0) for a in alts
+                                               if any(p.search(a.get("text", "")) for p, _, l in self.routes if l == label)), 2)
+                    info = provider.get_provider_info() if hasattr(provider, "get_provider_info") else {}
+                    meta["route"] = {"label": label, "model": info.get("model_name", ""), "confidence": confidence}
+                    user_query = self._strip_address(user_query, m)
+                    print(f"[AgentOrchestrator] Routed to {label}: \"{user_query}\"", flush=True)
+                    if self.route_listener:
+                        self.route_listener(label)
+                break
+
         # Unified Data-Driven Fast-Path Interceptor (System Defaults + Dynamic Learned Rules)
-        fast_match = self.fast_path_manager.match(user_query, active_model_name=self.get_active_model_name())
+        fast_match = None if provider is not self.llm_provider else self.fast_path_manager.match(user_query, active_model_name=self.get_active_model_name())
         if fast_match:
             print(f"[AgentOrchestrator] Intercepted Fast-Path Query ('{user_query}') -> Rule '{fast_match.get('rule_id')}'", flush=True)
-            return self._execute_fast_path_match(fast_match, user_query, session_id, speak_output)
+            return self._execute_fast_path_match(fast_match, user_query, session_id, speak_output, meta)
 
-        system_prompt = self.build_system_prompt()
+        with self._history_lock:
+            prior = list(self.conversation_history[-self.max_history_turns * 2:])
+        run = dict(provider=provider, user_query=user_query, system_prompt=self.build_system_prompt(),
+                   prior=prior, meta=meta, session_id=session_id)
+
+        if self.task_board is None:
+            task = BackgroundTask(user_query, route_label)
+            result = self._run_react(task, **run)
+            if speak_output:
+                self._speak(result.get("final_spoken_summary", ""))
+            return result
+
+        task = self.task_board.create(user_query, route_label)
+        threading.Thread(target=self._run_react, args=(task,), kwargs=run, daemon=True,
+                         name=f"JarvisTask-{task.id}").start()
+        task.settled.wait(PROMOTE_AFTER)
+        with task.lock:
+            if not task.finished:
+                task.background = True
+        if task.finished:
+            result = task.final_result
+            if speak_output:
+                self._speak(result.get("final_spoken_summary", ""))
+            return result
+
+        ack = task.ack if task.ack and not CLAIMS_DONE.match(task.ack) else "On it."
+        ack = ack.rstrip()
+        if ack[-1:] not in ".!?":
+            ack += "."
+        ack += " I'll let you know when it's done."
+        print(f"[AgentOrchestrator] Task {task.id} continues in the background.", flush=True)
+        self.task_board.emit("task_started", task)
+        if speak_output:
+            self._speak(ack)
+        return {"success": True, "tool": "background_task", "background_task_id": task.id,
+                "final_spoken_summary": ack}
+
+    def _run_react(self, task: BackgroundTask, provider: BaseLLMProvider, user_query: str, system_prompt: str,
+                   prior: List[Dict[str, str]], meta: Dict[str, Any], session_id: str) -> Dict[str, Any]:
+        """The ReAct loop: ask the model, run the tool it picks, feed observations back, repeat."""
+        in_worker = self.task_board is not None
+        if in_worker:
+            self.engine.set_run_context(task.cancel_event, BACKGROUND_COMMAND_TIMEOUT)
+        max_steps = BACKGROUND_MAX_STEPS if in_worker else 3
+
+        # This request's own reasoning trail. Observations must reach the model on the next step.
+        trail: List[Dict[str, str]] = [{"role": "user", "content": user_query}]
+        last_result: Dict[str, Any] = {"success": True}
+        final_spoken = ""
+        executed_tools: List[str] = []
+        tool_args: Any = {}
+        last_parsed: Dict[str, Any] = {}
+        status = "done"
+
+        def update(event="task_updated"):
+            self.task_board and self.task_board.emit(event, task)
 
         try:
-            # ReAct Agentic Loop: Up to 3 tool execution steps per user query
-            max_steps = 3
-            step = 0
-            last_result: Dict[str, Any] = {"success": True}
-            final_spoken = ""
-            executed_tools = []
-
-            # Append initial user query to conversation history
-            self.conversation_history.append({"role": "user", "content": user_query})
-
-            while step < max_steps:
-                step += 1
-                parsed = self.llm_provider.process_voice_query(user_query, self.conversation_history[:-1], system_prompt)
+            for step in range(1, max_steps + 1):
+                if task.cancel_event.is_set():
+                    status, final_spoken = "cancelled", "Stopped."
+                    break
+                task.current = "Thinking…"
+                update()
+                history = prior if step == 1 else prior + trail
+                parsed = provider.process_voice_query(user_query, history, system_prompt)
                 print(f"[AgentOrchestrator ReAct Step {step}] LLM Response: {parsed}", flush=True)
+                if task.cancel_event.is_set():
+                    status, final_spoken = "cancelled", "Stopped."
+                    break
+                last_parsed = parsed if isinstance(parsed, dict) else {}
 
-                tool_name = parsed.get("tool", "none")
-                tool_args = parsed.get("args", {})
-                spoken_summary = (
-                    parsed.get("spoken_summary") or
-                    parsed.get("response") or
-                    parsed.get("answer") or
-                    parsed.get("message") or
-                    ""
-                )
+                tool_name = last_parsed.get("tool", "none")
+                tool_args = last_parsed.get("args", {})
+                spoken_summary = (last_parsed.get("spoken_summary") or last_parsed.get("response")
+                                  or last_parsed.get("answer") or last_parsed.get("message") or "")
+                if spoken_summary:
+                    task.ack = task.ack or spoken_summary
 
                 # Validate tool name against registered tools & meta-tools
                 known_meta_tools = ["none", "None", "", None, "Bash", "View", "Edit", "Grep", "ManageTools"]
                 known_custom_tools = list(self.registry._tools.keys())
                 if tool_name not in known_meta_tools and tool_name not in known_custom_tools:
                     # If tool_name is an executable path (e.g. '/usr/bin/steam') or app binary, normalize to app_launcher
-                    if tool_name.startswith("/") or any(app_kw in tool_name.lower() for app_kw in ["steam", "discord", "code", "firefox", "chrome", "spotify"]):
+                    if str(tool_name).startswith("/") or any(app_kw in str(tool_name).lower() for app_kw in ["steam", "discord", "code", "firefox", "chrome", "spotify"]):
                         from pathlib import Path
-                        app_extracted = Path(tool_name).name
+                        app_extracted = Path(str(tool_name)).name
                         print(f"[AgentOrchestrator] Normalizing LLM executable path tool '{tool_name}' -> app_launcher(app_name='{app_extracted}')", flush=True)
                         tool_name = "app_launcher"
                         tool_args = {"app_name": app_extracted}
@@ -260,19 +414,26 @@ class AgentOrchestrator:
                         print(f"[AgentOrchestrator Warning] Unknown tool '{tool_name}' requested. Treating as conversational response.", flush=True)
                         tool_name = "none"
 
-                # Append assistant turn to history
-                self.conversation_history.append({"role": "assistant", "content": json.dumps(parsed)})
+                trail.append({"role": "assistant", "content": json.dumps(last_parsed)})
 
                 if tool_name in ["none", "None", "", None]:
                     final_spoken = spoken_summary or "I'm here to help."
-                    last_result = {
-                        "success": True,
-                        "tool": "none",
-                        "spoken_confirmation": final_spoken
-                    }
+                    last_result = {"success": True, "tool": "none", "spoken_confirmation": final_spoken}
                     break
 
                 executed_tools.append(tool_name)
+                step_info = describe_step(tool_name, tool_args)
+                step_info["state"] = "running"
+                task.steps.append(step_info)
+                task.current = step_info["label"]
+                if tool_name in BACKGROUND_TOOLS:
+                    task.ack = spoken_summary or task.ack
+                    # A quick command (open a URL, make a folder) finishes in the foreground; a slow
+                    # one lets the voice request reply after COMMAND_GRACE seconds.
+                    grace = threading.Timer(COMMAND_GRACE, task.settled.set)
+                    grace.daemon = True
+                    grace.start()
+                update()
 
                 # Route tool execution (supports single dict or array of multi-call dicts)
                 args_list = tool_args if isinstance(tool_args, list) else [tool_args]
@@ -291,55 +452,93 @@ class AgentOrchestrator:
                         elif tool_name == "ManageTools":
                             last_result = self.engine.execute_manage_tools(single_args.get("action", "list"))
                     else:
-                        single_args["_raw_user_query"] = user_query
-                        last_result = self.engine.execute_custom_tool(tool_name, single_args)
+                        last_result = self.engine.execute_custom_tool(tool_name, {**single_args, "_raw_user_query": user_query})
 
-                tool_output = last_result.get("stdout") or last_result.get("spoken_confirmation") or "Command executed."
-                tool_error = last_result.get("stderr", "")
-
-                # If this was an inspection tool (like web_search or get_current_time), feed observation back to LLM to continue loop
-                if tool_name in ["web_search", "get_current_time", "system_status", "search_files", "View", "Grep"] or parsed.get("status") == "continue":
-                    print(f"[AgentOrchestrator ReAct Step {step}] Feeding tool observation back to LLM...", flush=True)
-                    observation_msg = f"[Observation from tool '{tool_name}']: Output: {tool_output}. Stderr: {tool_error}. Analyze this observation and perform the next step or output the final spoken_summary."
-                    self.conversation_history.append({"role": "user", "content": observation_msg})
-                    continue
-                else:
-                    # Action tool completed: Prefer empirical execution confirmation from engine over pre-execution guess
-                    final_spoken = last_result.get("spoken_confirmation") or spoken_summary or "Task complete."
+                step_info["state"] = "done" if last_result.get("success", True) else "failed"
+                update()
+                if last_result.get("cancelled") or task.cancel_event.is_set():
+                    status, final_spoken = "cancelled", "Stopped."
                     break
+
+                if "exit_code" in last_result:  # a shell command: report what it actually printed
+                    tool_output = str(last_result.get("stdout") or f"(no output, exit code {last_result.get('exit_code')})")
+                else:
+                    tool_output = str(last_result.get("stdout") or last_result.get("spoken_confirmation") or "Command executed.")
+                tool_error = str(last_result.get("stderr", ""))
+                inspecting = tool_name in INSPECTION_TOOLS or last_parsed.get("status") == "continue"
+                # A failed action goes back to the model, which can try another way (an app that isn't
+                # installed may be a website) or explain the failure, instead of a canned error.
+                failed_action = last_result.get("success") is False and step < max_steps
+                # A background task gets one more look at the result, so its closing line says what
+                # actually happened ("Installed it.") rather than what it was about to do.
+                if inspecting or failed_action or (task.background and step < max_steps):
+                    print(f"[AgentOrchestrator ReAct Step {step}] Feeding tool observation back to LLM...", flush=True)
+                    trail.append({"role": "user", "content": (
+                        f"[Observation from tool '{tool_name}']: Output: {tool_output[:OBSERVATION_CHARS]}. "
+                        f"Stderr: {tool_error[:OBSERVATION_CHARS]}. Perform the next step if one is needed. "
+                        "If the request is done, reply with tool \"none\", status \"complete\" and a short "
+                        "past-tense spoken_summary of what happened, including any failure.")})
+                    continue
+                # Action tool completed: prefer the engine's confirmation over the pre-execution guess,
+                # except for shell commands, where the engine only has the model's "explanation" (a
+                # description of the command), and the spoken line reads better.
+                if tool_name in BACKGROUND_TOOLS and spoken_summary:
+                    final_spoken = spoken_summary
+                else:
+                    final_spoken = last_result.get("spoken_confirmation") or spoken_summary or "Task complete."
+                break
 
             if not final_spoken:
                 final_spoken = last_result.get("spoken_confirmation") or "Finished."
-
-            last_result["final_spoken_summary"] = final_spoken
-
-            if speak_output and self.tts and final_spoken:
-                self.tts.speak(final_spoken, block=True)
-
-            self.logger.log_turn(
-                session_id=session_id,
-                user_query=user_query,
-                tool_executed=" -> ".join(executed_tools) if executed_tools else "none",
-                tool_args=tool_args,
-                execution_stdout=last_result.get("stdout", ""),
-                execution_stderr=last_result.get("stderr", ""),
-                spoken_response=final_spoken
-            )
-
-            return last_result
-
+            if status == "done" and last_result.get("success") is False:
+                status = "failed"
         except Exception as e:
-            err_str = f"Error processing query with LLM provider: {e}"
-            print(f"[AgentOrchestrator Error] {err_str}", flush=True)
-            self.logger.log_turn(session_id, user_query, execution_stderr=err_str)
-            return {"success": False, "stderr": err_str}
+            print(f"[AgentOrchestrator Error] Error processing query with LLM provider: {e}", flush=True)
+            last_result = {"success": False, "stderr": f"Error processing query with LLM provider: {e}"}
+            final_spoken = "Something went wrong while working on that."
+            status = "failed"
+        finally:
+            if in_worker:
+                self.engine.set_run_context(None, None)
+
+        last_result["final_spoken_summary"] = final_spoken
+        with self._history_lock:
+            self.conversation_history.append({"role": "user", "content": user_query})
+            self.conversation_history.append({"role": "assistant", "content": json.dumps(
+                {**last_parsed, "spoken_summary": final_spoken} if last_parsed else {"tool": "none", "spoken_summary": final_spoken})})
+            del self.conversation_history[:-self.max_history_turns * 2]
+
+        with task.lock:
+            task.status = status
+            task.result = final_spoken
+            task.current = ""
+            task.finished_at = time.time()
+            task.final_result = last_result
+            background = task.background
+        meta = {**meta, "outcome": "failed" if status == "failed" else ("cancelled" if status == "cancelled" else "ok")}
+        if background:
+            meta["background_task"] = {"id": task.id, "status": status, "steps": task.steps}
+        self.logger.log_turn(
+            session_id=session_id,
+            user_query=user_query,
+            tool_executed=" -> ".join(executed_tools) if executed_tools else "none",
+            tool_args=tool_args,
+            execution_stdout=last_result.get("stdout", ""),
+            execution_stderr=last_result.get("stderr", ""),
+            spoken_response=final_spoken,
+            meta=meta,
+        )
+        task.settled.set()
+        update("task_finished")
+        return last_result
 
     def _execute_fast_path_match(
         self,
         match: Dict[str, Any],
         user_query: str,
         session_id: str,
-        speak_output: bool = True
+        speak_output: bool = True,
+        meta: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Executes a matched fast-path rule (tool call, static response, or identity info).
@@ -369,11 +568,12 @@ class AgentOrchestrator:
             "args": {k: v for k, v in tool_args.items() if not k.startswith("_")},
             "spoken_summary": final_spoken
         }
-        self.conversation_history.append({"role": "user", "content": user_query})
-        self.conversation_history.append({"role": "assistant", "content": json.dumps(parsed)})
+        with self._history_lock:
+            self.conversation_history.append({"role": "user", "content": user_query})
+            self.conversation_history.append({"role": "assistant", "content": json.dumps(parsed)})
 
-        if speak_output and self.tts and final_spoken:
-            self.tts.speak(final_spoken, block=True)
+        if speak_output:
+            self._speak(final_spoken)
 
         self.logger.log_turn(
             session_id=session_id,
@@ -382,7 +582,8 @@ class AgentOrchestrator:
             tool_args=tool_args,
             execution_stdout=exec_res.get("stdout", ""),
             execution_stderr=exec_res.get("stderr", ""),
-            spoken_response=final_spoken
+            spoken_response=final_spoken,
+            meta={**(meta or {}), "outcome": "failed" if exec_res.get("success") is False else "ok"},
         )
 
         exec_res["final_spoken_summary"] = final_spoken

@@ -20,6 +20,15 @@ DESKTOP_DIRS = [
 ]
 
 
+# Words that come before an app's name in speech, not part of it ("open up the camera").
+_LEAD_WORDS = {"up", "the", "my", "a", "an", "me", "to", "on", "open", "launch", "start", "run", "this", "that", "app"}
+
+
+# Spoken names that don't match the desktop entry ("VS Code" is "Visual Studio Code", binary "code").
+_ALIASES = {"vs code": "code", "vscode": "code", "visual studio": "code", "file manager": "files",
+            "web browser": "firefox", "browser": "firefox"}
+
+
 class AppEntry:
     def __init__(self, desktop_path: str, name: str, exec_cmd: str, keywords: List[str], desktop_id: str):
         self.desktop_path = desktop_path
@@ -145,77 +154,92 @@ class AppScanner:
             return f"nohup gtk-launch '{desktop_id}' >/dev/null 2>&1 &"
         return f"nohup {clean_exec} >/dev/null 2>&1 &"
 
+    @staticmethod
+    def clean_app_query(query: str) -> str:
+        """
+        Reduce a spoken app request to the app's name: "up Figma, the design website?" -> "figma",
+        "my camera app" -> "camera", "DoomTheDarkAges" -> "doom the dark ages".
+        """
+        q = re.sub(r"([a-z])([A-Z])", r"\1 \2", str(query or "").strip())
+        q = re.split(r"[,;:(]|\s+-\s+", q, maxsplit=1)[0]  # drop a trailing description
+        q = re.sub(r"[^\w\s.+-]", " ", q).lower()
+        q = re.sub(r"\s+(?:for\s+me|please|now|on\s+my\s+(?:computer|pc|desktop)|real\s+quick)\s*$", "", q.strip())
+        words = q.split()
+        while words and words[0] in _LEAD_WORDS:
+            words.pop(0)
+        while len(words) > 1 and words[-1] in ("app", "application", "program", "please"):
+            words.pop()
+        return " ".join(words).strip(" .")
+
+    def find_app(self, query: str) -> Optional[AppEntry]:
+        """
+        The installed app the query names, or None. Only confident matches: a near-miss like
+        "figma" -> "Firmware" is worse than saying the app isn't installed.
+        """
+        q = self.clean_app_query(query)
+        q = _ALIASES.get(q, q)
+        if not q:
+            return None
+        apps = list(dict.fromkeys(self.apps.values()))  # unique entries, scan order
+
+        # 1. Exact name, desktop id, or the id's last part (org.gnome.Snapshot -> snapshot)
+        if q in self.apps:
+            return self.apps[q]
+        for app in apps:
+            if q == app.desktop_id.lower().rsplit(".", 1)[-1] or q.replace(" ", "") == app.name.lower().replace(" ", ""):
+                return app
+
+        # 2. Binary name
+        for app in apps:
+            binary = Path(app.exec_cmd.split()[0]).name.lower() if app.exec_cmd else ""
+            if binary and binary in (q, q.replace(" ", ""), q.replace(" ", "-")):
+                return app
+
+        # 3. Whole words: "code" in "Visual Studio Code", or the app's full name inside the query
+        q_pat = re.compile(r"\b" + re.escape(q) + r"\b")
+        for app in apps:
+            name = re.sub(r"[^\w\s]", " ", app.name.lower())
+            if q_pat.search(name) or re.search(r"\b" + re.escape(" ".join(name.split())) + r"\b", q):
+                return app
+
+        # 4. A keyword the app declares, as a whole word ("camera" -> Snapshot, "webcam")
+        for app in apps:
+            if any(q == kw or q_pat.search(kw) for kw in app.keywords):
+                return app
+
+        # 5. Token overlap: two or more meaningful words in common ("doom dark ages")
+        q_tokens = {t for t in q.split() if len(t) >= 3 and t not in _LEAD_WORDS}
+        best, best_overlap = None, 1
+        for app in apps:
+            app_tokens = {t for t in re.sub(r"[^\w\s]", " ", app.name.lower()).split() if len(t) >= 3}
+            overlap = len(q_tokens & app_tokens)
+            if overlap > best_overlap:
+                best, best_overlap = app, overlap
+        if best:
+            print(f"[AppScanner] Token match: {sorted(q_tokens)} -> '{best.name}'", flush=True)
+            return best
+
+        # 6. Close spelling only ("discrod" -> Discord); strict cutoff keeps "figma" off "Firmware"
+        names = {app.name.lower(): app for app in apps}
+        close = difflib.get_close_matches(q, list(names), n=1, cutoff=0.8)
+        if close:
+            return names[close[0]]
+        return None
+
     def resolve_app_launcher_command(self, query: str) -> Tuple[str, str]:
         """
-        Fuzzy matches a user spoken query (e.g. "VS Code", "Doom The Dark Ages", "DoomTheDarkAges", "Discord")
-        against installed apps and returns the exact executable launch command and display name.
-        
-        :return: (launch_command, app_display_name)
+        The launch command and display name for an installed app, or ("", "") when none matches.
         """
-        import re
-
-        # 0. Un-camelCase and clean query string
-        normalized_q = re.sub(r'([a-z])([A-Z])', r'\1 \2', query.strip())
-        normalized_q = re.sub(r'[^\w\s]', ' ', normalized_q)
-        clean_q = normalized_q.lower().strip()
-
-        if not clean_q:
-            return f"nohup gtk-launch '{query}' >/dev/null 2>&1 &", query
-
-        # 1. Exact match by desktop_id or lowercase name
-        if clean_q in self.apps:
-            app = self.apps[clean_q]
-            return self._build_launch_cmd(app.desktop_id, app.exec_cmd), app.name
-
-        # 2. Match binary name
-        for app in self.apps.values():
-            binary = app.exec_cmd.split()[0].lower() if app.exec_cmd else ""
-            if binary == clean_q or Path(binary).name == clean_q:
-                return self._build_launch_cmd(app.desktop_id, app.exec_cmd), app.name
-
-        # 3. Substring / Keyword match
-        for app in self.apps.values():
-            if clean_q in app.name.lower() or any(clean_q in kw for kw in app.keywords):
-                return self._build_launch_cmd(app.desktop_id, app.exec_cmd), app.name
-
-        # 4. Token Intersection Match (e.g. "doom that arc ages" or "doom dark ages" -> "DOOM: The Dark Ages")
-        q_tokens = set(t for t in clean_q.split() if len(t) >= 3 and t not in ("open", "launch", "start", "run", "the", "that", "this"))
-        if q_tokens:
-            best_token_app = None
-            best_overlap_count = 0
-            for app in self.apps.values():
-                app_name_clean = re.sub(r'[^\w\s]', ' ', app.name.lower())
-                app_tokens = set(t for t in app_name_clean.split() if len(t) >= 3)
-                overlap = len(q_tokens.intersection(app_tokens))
-                if overlap >= 2 and overlap > best_overlap_count:
-                    best_overlap_count = overlap
-                    best_token_app = app
-            if best_token_app:
-                print(f"[AppScanner] Token match found: query tokens {q_tokens} -> app '{best_token_app.name}'", flush=True)
-                return self._build_launch_cmd(best_token_app.desktop_id, best_token_app.exec_cmd), best_token_app.name
-
-        # 5. Fuzzy string matching fallback
-        names = [app.name for app in self.apps.values()]
-        ids = [app.desktop_id for app in self.apps.values()]
-        all_candidates = names + ids
-
-        matches = difflib.get_close_matches(clean_q, all_candidates, n=1, cutoff=0.4)
-        if matches:
-            best_match_str = matches[0]
-            for app in self.apps.values():
-                if app.name == best_match_str or app.desktop_id == best_match_str:
-                    return self._build_launch_cmd(app.desktop_id, app.exec_cmd), app.name
-
-        # Fallback to direct gtk-launch / shell launch
-        return self._build_launch_cmd(query, query), query
+        app = self.find_app(query)
+        if not app:
+            return "", ""
+        return self._build_launch_cmd(app.desktop_id, app.exec_cmd), app.name
 
     def match_app_launch_intent(self, user_query: str) -> Optional[Tuple[str, str, str]]:
         """
-        Checks if user_query contains an app launching verb (open, launch, start, run)
-        and matches an installed system application.
+        Checks if user_query is a plain "open X" request for an installed app.
         :return: (launch_command, app_display_name, matched_query) or None
         """
-        import re
         q = user_query.lower().strip()
 
         # Skip app launcher fast-path if user query is a mutation/configuration request
@@ -223,33 +247,17 @@ class AppScanner:
         if any(re.search(r"\b" + re.escape(v) + r"\b", q) for v in mutation_verbs):
             return None
 
-        match = re.search(r'(?:can\s+you\s+|could\s+you\s+|would\s+you\s+|please\s+)?(?:open|launch|start|run)\s+(.+?)(?:\s+for\s+me|\s+please|[.!])?$', q)
+        match = re.search(r"^(?:.*?\b)?(?:can\s+you\s+|could\s+you\s+|would\s+you\s+|please\s+)?(?:open|launch|start|run|pull\s+up|bring\s+up)\s+(.+?)[.!?]*$", q)
         if not match:
             return None
+        target_q = self.clean_app_query(match.group(1))
+        if not target_q or re.search(r"\b(?:mode|timer|playlist|song|music|album)\b", target_q):
+            return None  # "start movie mode", "start a timer": not apps
 
-        target_q = match.group(1).strip().rstrip('.!')
-        if not target_q:
+        app = self.find_app(target_q)
+        if not app:
             return None
-
-        # Resolve via scanner
-        cmd, display_name = self.resolve_app_launcher_command(target_q)
-        
-        # Verify if display_name matched an actual app entry in system
-        target_tokens = set(re.sub(r'[^\w\s]', ' ', target_q).split())
-        for app in self.apps.values():
-            app_name_lower = app.name.lower()
-            desktop_id_lower = app.desktop_id.lower()
-            binary_lower = app.exec_cmd.split()[0].lower() if app.exec_cmd else ""
-            
-            if (app.name == display_name or 
-                app_name_lower in target_q or 
-                target_q in app_name_lower or
-                desktop_id_lower in target_q or
-                binary_lower == target_q or
-                any(t in app_name_lower for t in target_tokens if len(t) >= 3)):
-                return cmd, display_name, target_q
-
-        return None
+        return self._build_launch_cmd(app.desktop_id, app.exec_cmd), app.name, target_q
 
     def resolve_app_close_command(self, query: str) -> Tuple[str, str]:
         """
@@ -258,7 +266,8 @@ class AppScanner:
         :return: (close_command, app_display_name)
         """
         _, display_name = self.resolve_app_launcher_command(query)
-        clean_name = query.lower().strip()
+        display_name = display_name or query
+        clean_name = self.clean_app_query(query) or query.lower().strip()
         clean_name_no_space = clean_name.replace(" ", "")
 
         # Process name mapping table for common desktop applications

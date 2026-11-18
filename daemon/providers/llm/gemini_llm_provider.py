@@ -8,8 +8,10 @@ import json
 import urllib.request
 from typing import Dict, Any, List, Optional
 from daemon.providers.base import BaseLLMProvider
+from daemon.providers.factory import ProviderRegistry
 
 
+@ProviderRegistry.register_llm("gemini_llm")
 class GeminiLLMProvider(BaseLLMProvider):
     def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-1.5-flash"):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY", "")
@@ -89,9 +91,12 @@ class GeminiLLMProvider(BaseLLMProvider):
         return {"tool": "none", "args": {}, "spoken_summary": "Unable to connect to Google Gemini API."}
 
     def get_provider_info(self) -> Dict[str, Any]:
+        model = getattr(self, "model_name", "gemini-3.6-flash")
+        models = self.get_available_models() if hasattr(self, "get_available_models") else []
         return {
             "id": "gemini_llm",
-            "name": f"Google Gemini ({self.model_name})",
+            "name": f"Google Gemini ({model})",
             "type": "cloud",
-            "model_name": self.model_name
+            "model_name": model,
+            "models": models
         }
