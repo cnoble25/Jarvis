@@ -3,6 +3,7 @@ Kokoro-ONNX Local TTS Provider (Story 2.4)
 Wraps local Kokoro-ONNX engine into AbstractBaseTTSEngine interface.
 """
 
+import threading
 import numpy as np
 from typing import Dict, Any, List, Optional, Tuple
 from daemon.providers.base import AbstractBaseTTSEngine
@@ -16,10 +17,17 @@ class KokoroTTSProvider(AbstractBaseTTSEngine):
         super().__init__()
         self.voice = voice
         self._engine: Optional[TTSEngine] = None
+        self._engine_lock = threading.Lock()
 
     def _ensure_engine(self):
-        if self._engine is None:
-            self._engine = TTSEngine()
+        with self._engine_lock:
+            if self._engine is None:
+                self._engine = TTSEngine()
+
+    def warm_up(self):
+        """Load the model and run one synthesis now, so the first reply isn't the slow one."""
+        self._ensure_engine()
+        self._engine.warm_up(self.voice)
 
     def _synthesize_audio(self, text: str, voice: str, speed: float) -> Tuple[np.ndarray, int]:
         self._ensure_engine()
@@ -36,7 +44,7 @@ class KokoroTTSProvider(AbstractBaseTTSEngine):
     def get_provider_info(self) -> Dict[str, Any]:
         return {
             "id": "kokoro_tts",
-            "name": f"Kokoro-ONNX Local ({self.voice})",
+            "name": f"Kokoro-ONNX {'GPU' if self._engine is not None and self._engine.device == 'GPU' else 'Local'} ({self.voice})",
             "type": "local",
             "voice": self.voice
         }

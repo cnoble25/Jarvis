@@ -29,13 +29,39 @@ class TTSEngine:
         self._ensure_assets()
 
         print(f"[TTSEngine] Loading Kokoro-ONNX model from '{self.model_path}'...", flush=True)
-        self.kokoro = Kokoro(self.model_path, self.voices_path)
-        print("[TTSEngine] Kokoro-ONNX TTS engine initialized successfully.", flush=True)
+        self.kokoro, self.device = self._load()
+        print(f"[TTSEngine] Kokoro-ONNX TTS engine ready on {self.device}.", flush=True)
 
         # Detect native PipeWire/PulseAudio player (pw-play / paplay) to prevent audio choppiness when music plays concurrently
         self.player_cmd = shutil.which("pw-play") or shutil.which("paplay") or shutil.which("aplay")
         if self.player_cmd:
             print(f"[TTSEngine] Detected native PipeWire audio player: '{self.player_cmd}' (Concurrent audio mixing enabled)", flush=True)
+
+    def _load(self):
+        """
+        Kokoro on the GPU when onnxruntime-gpu and a CUDA device are available (about 0.1s per reply
+        instead of 0.3-1s on the CPU), otherwise on the CPU.
+        """
+        try:
+            import onnxruntime as ort
+            if "CUDAExecutionProvider" in ort.get_available_providers():
+                try:
+                    ort.preload_dlls()  # the pip-installed CUDA / cuDNN libraries
+                except Exception:
+                    pass
+                session = ort.InferenceSession(self.model_path, providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
+                if "CUDAExecutionProvider" in session.get_providers():
+                    return Kokoro.from_session(session, self.voices_path), "GPU"
+        except Exception as err:
+            print(f"[TTSEngine] GPU unavailable for speech ({err}); using the CPU.", flush=True)
+        return Kokoro(self.model_path, self.voices_path), "CPU"
+
+    def warm_up(self, voice: str = "af_kore"):
+        """The first synthesis prepares GPU kernels (~0.5-0.9s); do it before the first real reply."""
+        import time
+        started = time.perf_counter()
+        self.kokoro.create("Ready.", voice=voice, speed=1.0, lang="en-us")
+        print(f"[TTSEngine] Warmed up on {self.device} in {time.perf_counter() - started:.2f}s.", flush=True)
 
     def _ensure_assets(self):
         """

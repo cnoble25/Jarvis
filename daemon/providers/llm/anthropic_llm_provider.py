@@ -1,15 +1,22 @@
 """
-Anthropic Claude LLM Orchestrator Provider
-Connects Anthropic Claude 3 Haiku, 3.5 Haiku, and 4 Haiku API to Jarvis tool execution and conversational loop.
+Anthropic Claude LLM provider, on the official `anthropic` SDK.
+
+Latency notes (a voice turn waits on this call):
+- One client per API key, reused: its connection pool keeps the HTTPS connection open between
+  requests, so a turn doesn't pay a fresh TCP + TLS handshake.
+- prepare() is called when the talk shortcut is pressed. If the pooled connection may have
+  expired, it opens one with a free Models API request while the user is still speaking.
+- The system prompt is cached (cache_control); it only includes today's date, so the prefix is
+  stable all day.
 """
 
 import os
-import json
-import urllib.request
-from typing import Dict, Any, List, Optional
+import threading
+import time
+from typing import Any, Dict, List, Optional
+
 from daemon.providers.base import BaseLLMProvider
 from daemon.providers.factory import ProviderRegistry
-
 
 MODEL_MAPPING = {
     "haiku-4.5": "claude-haiku-4-5-20251001",
@@ -29,6 +36,26 @@ MODEL_MAPPING = {
     "sonnet-4.6": "claude-sonnet-4-6",
     "claude-sonnet-4-6": "claude-sonnet-4-6"
 }
+FALLBACK_MODELS = ["claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929", "claude-sonnet-4-6"]
+KEEPALIVE_SECONDS = 120.0  # keep the idle connection this long (the SDK default is 5s)
+PREPARE_IF_IDLE = 4.0      # re-open the connection on key press if it's been idle at least this long
+
+_clients: Dict[str, Any] = {}
+_clients_lock = threading.Lock()
+
+
+def _client(api_key: str):
+    """One SDK client per key, shared, so its pooled connection is reused across turns."""
+    import anthropic
+    import httpx2
+    with _clients_lock:
+        client = _clients.get(api_key)
+        if client is None:
+            http = anthropic.DefaultHttpxClient(limits=httpx2.Limits(
+                max_connections=10, max_keepalive_connections=4, keepalive_expiry=KEEPALIVE_SECONDS))
+            client = anthropic.Anthropic(api_key=api_key, http_client=http, timeout=30.0, max_retries=1)
+            _clients[api_key] = client
+        return client
 
 
 @ProviderRegistry.register_llm("anthropic_llm")
@@ -36,13 +63,28 @@ class AnthropicLLMProvider(BaseLLMProvider):
     def __init__(self, api_key: Optional[str] = None, model_name: str = "claude-haiku-4-5-20251001"):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         self.model_name = model_name
+        self._last_used = 0.0
+        self.last_timing: Dict[str, float] = {}
 
     def get_available_models(self) -> List[str]:
-        return [
-            "claude-haiku-4-5-20251001",
-            "claude-sonnet-4-5-20250929",
-            "claude-sonnet-4-6"
-        ]
+        return list(FALLBACK_MODELS)
+
+    def _key(self) -> str:
+        return self.api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+
+    def prepare(self):
+        """Open the HTTPS connection ahead of the request (free: a Models API lookup)."""
+        key = self._key()
+        if not key or time.monotonic() - self._last_used < PREPARE_IF_IDLE:
+            return
+        started = time.perf_counter()
+        try:
+            _client(key).models.retrieve(MODEL_MAPPING.get(self.model_name, self.model_name))
+            self._last_used = time.monotonic()
+            if os.environ.get("JARVIS_DEBUG_LLM"):
+                print(f"[AnthropicLLM] Connection ready in {time.perf_counter() - started:.2f}s.", flush=True)
+        except Exception as err:
+            print(f"[AnthropicLLM] Couldn't pre-open the connection: {err}", flush=True)
 
     def process_voice_query(
         self,
@@ -50,92 +92,72 @@ class AnthropicLLMProvider(BaseLLMProvider):
         history: List[Dict[str, str]],
         system_prompt: str
     ) -> Dict[str, Any]:
-        active_key = self.api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-        if not active_key:
+        import anthropic
+
+        key = self._key()
+        if not key:
             print("[AnthropicLLM Error] ANTHROPIC_API_KEY not found in environment, settings, or .env file.", flush=True)
             return {"tool": "none", "args": {}, "spoken_summary": "Anthropic API key is missing. Please enter your API key in settings."}
-
-        target_model = MODEL_MAPPING.get(self.model_name, self.model_name)
 
         messages = []
         for past in history[-4:]:
             role = "user" if past.get("role") == "user" else "assistant"
             messages.append({"role": role, "content": past.get("content", "")})
-
         messages.append({"role": "user", "content": user_query})
 
-        candidate_models = [target_model]
-        for fallback in ["claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929", "claude-sonnet-4-6"]:
-            if fallback not in candidate_models:
-                candidate_models.append(fallback)
+        system_blocks = [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]
+        target_model = MODEL_MAPPING.get(self.model_name, self.model_name)
+        candidates = [target_model] + [m for m in FALLBACK_MODELS if m != target_model]
 
-        system_blocks = [
-            {
-                "type": "text",
-                "text": system_prompt,
-                "cache_control": {"type": "ephemeral"}
-            }
-        ]
-
-        for m in candidate_models:
-            payload = {
-                "model": m,
-                "max_tokens": 300,
-                "system": system_blocks,
-                "messages": messages
-            }
-
+        client = _client(key)
+        for model in candidates:
+            started = time.perf_counter()
             try:
-                req = urllib.request.Request(
-                    "https://api.anthropic.com/v1/messages",
-                    data=json.dumps(payload).encode("utf-8"),
-                    headers={
-                        "Content-Type": "application/json",
-                        "x-api-key": active_key,
-                        "anthropic-version": "2023-06-01",
-                        "anthropic-beta": "prompt-caching-2024-07-31"
-                    }
+                response = client.messages.create(
+                    model=model,
+                    max_tokens=300,
+                    system=system_blocks,
+                    messages=messages,
                 )
-                with urllib.request.urlopen(req, timeout=30) as resp:
-                    data = json.loads(resp.read().decode())
-                    content_blocks = data.get("content", [])
-                    text = "".join(b.get("text", "") for b in content_blocks if b.get("type") == "text").strip()
-
-                    # Log prompt caching stats (only on cache creation or debug mode)
-                    usage = data.get("usage", {})
-                    cache_read = usage.get("cache_read_input_tokens", 0)
-                    cache_created = usage.get("cache_creation_input_tokens", 0)
-                    if not cache_created and isinstance(usage.get("cache_creation"), dict):
-                        cache_created = usage["cache_creation"].get("ephemeral_5m_input_tokens", 0)
-                    
-                    if cache_created > 0:
-                        print(f"[AnthropicLLM Caching] Initialized prompt cache ({cache_created} system tokens cached)", flush=True)
-                    elif os.environ.get("JARVIS_DEBUG_LLM"):
-                        print(f"[AnthropicLLM Debug] Cache Read: {cache_read} | Input: {usage.get('input_tokens', 0)} | Output: {usage.get('output_tokens', 0)}", flush=True)
-
-                    from daemon.utils.json_utils import extract_json_payload
-                    return extract_json_payload(text)
-            except urllib.error.HTTPError as http_err:
-                err_body = http_err.read().decode("utf-8", errors="ignore")
-                print(f"[AnthropicLLM Error] Model '{m}' HTTP {http_err.code}: {err_body}", flush=True)
-                if http_err.code == 404 and m != candidate_models[-1]:
+            except anthropic.NotFoundError as err:
+                print(f"[AnthropicLLM Error] Model '{model}' not found: {err.message}", flush=True)
+                if model != candidates[-1]:
                     continue
-                if http_err.code == 404:
-                    return {"tool": "none", "args": {}, "spoken_summary": "Anthropic API Error: Account credits required at console.anthropic.com"}
-                return {"tool": "none", "args": {}, "spoken_summary": f"Anthropic API Error ({http_err.code})."}
-            except Exception as e:
-                print(f"[AnthropicLLM Error] Query processing error: {e}", flush=True)
+                return {"tool": "none", "args": {}, "spoken_summary": "Anthropic API Error: Account credits required at console.anthropic.com"}
+            except anthropic.RateLimitError:
+                return {"tool": "none", "args": {}, "spoken_summary": "Anthropic is rate limiting requests. Try again in a moment."}
+            except anthropic.APIStatusError as err:
+                print(f"[AnthropicLLM Error] Model '{model}' HTTP {err.status_code}: {err.message}", flush=True)
+                return {"tool": "none", "args": {}, "spoken_summary": f"Anthropic API Error ({err.status_code})."}
+            except anthropic.APIConnectionError as err:
+                print(f"[AnthropicLLM Error] Connection failed: {err}", flush=True)
                 return {"tool": "none", "args": {}, "spoken_summary": "Error reaching Anthropic Claude server."}
+
+            self._last_used = time.monotonic()
+            usage = response.usage
+            self.last_timing = {
+                "seconds": round(time.perf_counter() - started, 3),
+                "cache_read": getattr(usage, "cache_read_input_tokens", 0) or 0,
+                "cache_write": getattr(usage, "cache_creation_input_tokens", 0) or 0,
+                "output_tokens": usage.output_tokens,
+            }
+            if self.last_timing["cache_write"]:
+                print(f"[AnthropicLLM Caching] Wrote prompt cache ({self.last_timing['cache_write']} tokens).", flush=True)
+            if os.environ.get("JARVIS_DEBUG_LLM"):
+                print(f"[AnthropicLLM Debug] {self.last_timing}", flush=True)
+
+            text = "".join(b.text for b in response.content if b.type == "text").strip()
+            from daemon.utils.json_utils import extract_json_payload
+            return extract_json_payload(text)
 
         return {"tool": "none", "args": {}, "spoken_summary": "Unable to connect to Anthropic API."}
 
     def get_provider_info(self) -> Dict[str, Any]:
         model = getattr(self, "model_name", "claude-haiku-4-5-20251001")
-        models = self.get_available_models() if hasattr(self, "get_available_models") else []
         return {
             "id": "anthropic_llm",
             "name": f"Anthropic Claude ({model})",
             "type": "cloud",
             "model_name": model,
-            "models": models
+            "models": self.get_available_models(),
         }

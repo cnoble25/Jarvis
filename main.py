@@ -354,9 +354,11 @@ class JarvisApplication:
         self.fast_path_agent = FastPathCreatorAgent(fast_path_manager=self.orchestrator.fast_path_manager)
         self._wire_stt_vocabulary()
         self._ensure_local_models()
+        self._warm_tts()
         self._wire_routes()
         from daemon.agent.tasks import TaskBoard
         self.orchestrator.task_board = TaskBoard(listener=self._on_task_event)
+        self.orchestrator.speak_listener = lambda text: self.bridge.update_hud_signal.emit("TTS_SPEAKING", text)
 
         self.recorder = AudioRecorder()
 
@@ -453,6 +455,7 @@ class JarvisApplication:
             self.provider_factory.update_settings(params)
             self.orchestrator.set_llm_provider(self.provider_factory.llm_provider)
             self.orchestrator.tts = self.provider_factory.tts_provider
+            self._warm_tts()
             self.tts = self.provider_factory.tts_provider
             self.profiler.set_llm_provider(self.provider_factory.llm_provider)
             self._wire_stt_vocabulary()
@@ -657,6 +660,19 @@ class JarvisApplication:
         self.orchestrator.routes = [(leading, claude_code, "Claude Code"), (trailing, claude_code, "Claude Code")]
         self.orchestrator.route_listener = lambda label: self.bridge.update_hud_signal.emit("AGENT_THINKING", f"Asking {label}…")
 
+    def _warm_tts(self):
+        """Load and warm the voice in the background, so the first reply after startup is quick too."""
+        tts = self.provider_factory.tts_provider
+        if tts is None or not hasattr(tts, "warm_up"):
+            return
+
+        def _run():
+            try:
+                tts.warm_up()
+            except Exception as err:
+                print(f"[Jarvis Main] Voice warm-up failed: {err}", flush=True)
+        threading.Thread(target=_run, daemon=True, name="JarvisTTSWarmup").start()
+
     def _ensure_local_models(self):
         """If the thinking or learning model runs on Ollama, make sure `ollama serve` is up."""
         from daemon.utils import ollama_service
@@ -823,6 +839,11 @@ class JarvisApplication:
         self.bridge.update_hud_signal.emit("RECORDING_STARTED", "")
 
         self.ipc_server.broadcast_event("RECORDING_STARTED", {"mode": "hold_to_talk"})
+
+        # While the user talks, open the model's connection so the request doesn't wait on a handshake.
+        provider = self.provider_factory.llm_provider
+        if hasattr(provider, "prepare"):
+            threading.Thread(target=provider.prepare, daemon=True, name="JarvisLLMPrepare").start()
         
         try:
             self.recorder.start_recording()
@@ -862,6 +883,21 @@ class JarvisApplication:
         threading.Thread(target=_bg_post_processing, daemon=True, name="JarvisPostProcessingThread").start()
         return result
 
+    def _log_timing(self, released_at: float, stt_seconds: float):
+        """One line per voice request: where the wait went, from letting go of the shortcut."""
+        llm = getattr(self.provider_factory.llm_provider, "last_timing", {}) or {}
+        tts = self.provider_factory.tts_provider
+        audio_at = getattr(tts, "last_playback_started", None)
+        parts = [f"speech-to-text {stt_seconds:.2f}s"]
+        if llm:
+            parts.append(f"model {llm.get('seconds', 0):.2f}s (cache read {llm.get('cache_read', 0)}, "
+                         f"wrote {llm.get('cache_write', 0)}, {llm.get('output_tokens', 0)} tokens out)")
+        if getattr(tts, "last_synth_seconds", None) is not None:
+            parts.append(f"voice {tts.last_synth_seconds:.2f}s")
+        if audio_at:
+            parts.append(f"first audio {audio_at - released_at:.2f}s after release")
+        print("[Timing] " + " | ".join(parts), flush=True)
+
     def submit_text(self, text: str) -> Dict[str, Any]:
         """A typed request from the dashboard: same pipeline as voice, without speech in or out."""
         text = " ".join(str(text or "").split())[:500]
@@ -893,6 +929,7 @@ class JarvisApplication:
         Stops recording, runs STT -> LLM -> Tools -> TTS, and hides HUD pill.
         """
         print("[Jarvis Main] ⏹️ Hotkey Released! Processing voice session...", flush=True)
+        released_at = time.perf_counter()
         self.voice_state = "thinking"
         self._dashboard_event("thinking")
         active_model = self.orchestrator.get_active_model_name()
@@ -911,7 +948,9 @@ class JarvisApplication:
 
                 # Transcribe using active STT provider (Faster-Whisper local or Gemini Cloud API)
                 stt_provider = self.provider_factory.stt_provider
+                stt_started = time.perf_counter()
                 user_text = stt_provider.transcribe_buffer(pcm_buffer)
+                stt_seconds = time.perf_counter() - stt_started
                 print(f"[Jarvis Main] Transcribed ({stt_provider.get_provider_info()['name']}): \"{user_text}\"", flush=True)
                 alternatives = list(getattr(stt_provider, "last_alternatives", []) or [])[:5]
                 self._maybe_save_voice_sample(pcm_buffer, user_text, alternatives)
@@ -926,7 +965,13 @@ class JarvisApplication:
                 if alternatives:
                     self.logger.set_next_turn_meta({"heard_alternatives": alternatives})
 
+                tts = self.provider_factory.tts_provider
+                if tts is not None:
+                    tts.last_playback_started = None
+                if hasattr(self.provider_factory.llm_provider, "last_timing"):
+                    self.provider_factory.llm_provider.last_timing = {}
                 self._handle_request(user_text, speak_output=True)
+                self._log_timing(released_at, stt_seconds)
 
             except Exception as e:
                 print(f"[Jarvis Main Error] Voice processing error: {e}", flush=True)
