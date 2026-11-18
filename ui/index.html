@@ -77,6 +77,13 @@
         </div>
       </div>
 
+      <form id="ask-form" class="ask-form" autocomplete="off">
+        <label for="ask-input" class="visually-hidden">Type a request</label>
+        <input type="text" id="ask-input" class="input" maxlength="500" enterkeyhint="send"
+               placeholder="Or type a request, like “set a 10 minute timer”">
+        <button type="submit" class="btn btn-secondary">Send</button>
+      </form>
+
       <div id="llm-warning" class="banner banner-error banner-inline" role="alert" hidden>
         <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
         <p id="llm-warning-text"></p>

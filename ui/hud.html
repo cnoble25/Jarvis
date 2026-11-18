@@ -3,159 +3,117 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Jarvis Wispr Flow Bottom HUD Overlay Pill</title>
+  <title>Jarvis voice pill</title>
+  <link rel="stylesheet" href="css/overlay.css">
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-      font-family: 'Inter', system-ui, -apple-system, sans-serif;
-      user-select: none;
-    }
-
     body {
-      background: transparent;
       width: 100vw;
       height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      overflow: hidden;
     }
 
-    /* Floating Pill Frame */
-    .hud-pill {
-      width: clamp(340px, 90vw, 520px);
+    .pill {
+      width: min(504px, calc(100vw - 16px));
       height: 52px;
-      background: rgba(15, 19, 28, 0.92);
-      backdrop-filter: blur(24px);
-      -webkit-backdrop-filter: blur(24px);
-      border: 1px solid rgba(255, 255, 255, 0.15);
       border-radius: 26px;
-      padding: 0 18px;
+      padding: 0 8px 0 20px;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7), 0 0 24px rgba(99, 102, 241, 0.3);
-      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      gap: 14px;
     }
 
-    .hud-left {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      flex: 1;
-      overflow: hidden;
-    }
-
-    /* Waveform Animation */
-    .wave-container {
+    /* Four bars, cold water: they move while Jarvis is listening or speaking. */
+    .wave {
       display: flex;
       align-items: center;
       gap: 3px;
       height: 20px;
+      flex: 0 0 auto;
     }
 
-    .wave-bar {
+    .wave span {
       width: 3px;
       height: 6px;
-      background-color: #6366f1;
       border-radius: 2px;
-      transition: all 0.2s ease;
+      background: var(--silt);
+      transition: height 200ms var(--ease-out), background-color 200ms;
     }
 
-    .wave-container.recording .wave-bar {
-      animation: wave-bounce 1.2s infinite ease-in-out;
+    .pill[data-state="listening"] .wave span,
+    .pill[data-state="speaking"] .wave span {
+      animation: wave 1.1s ease-in-out infinite;
     }
-    .wave-container.recording .wave-bar:nth-child(2) { animation-delay: 0.15s; background-color: #8b5cf6; }
-    .wave-container.recording .wave-bar:nth-child(3) { animation-delay: 0.3s; background-color: #ec4899; }
-    .wave-container.recording .wave-bar:nth-child(4) { animation-delay: 0.45s; background-color: #10b981; }
 
-    @keyframes wave-bounce {
+    .wave span:nth-child(2) { animation-delay: 0.14s; background: var(--silt-deep); }
+    .wave span:nth-child(3) { animation-delay: 0.28s; }
+    .wave span:nth-child(4) { animation-delay: 0.42s; background: var(--sage); }
+
+    .pill[data-state="thinking"] .wave span {
+      background: var(--sage-deep);
+      animation: overlay-pulse 1.4s ease-in-out infinite;
+    }
+
+    @keyframes wave {
       0%, 100% { height: 6px; }
       50% { height: 20px; }
     }
 
-    .hud-text {
-      color: #f3f4f6;
-      font-size: 14px;
-      font-weight: 500;
+    .text {
+      flex: 1 1 auto;
+      min-width: 0;
+      font-size: var(--t-body);
+      color: var(--text);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
-    .hud-status-chip {
-      background: rgba(236, 72, 153, 0.18);
-      border: 1px solid rgba(236, 72, 153, 0.4);
-      color: #ec4899;
-      font-size: 11px;
+    .chip {
+      flex: 0 0 auto;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: var(--t-meta);
       font-weight: 700;
-      padding: 3px 10px;
-      border-radius: 12px;
-      letter-spacing: 0.03em;
-      text-transform: uppercase;
-      transition: all 0.2s ease;
+      color: var(--silt);
+      background: rgba(127, 209, 217, 0.12);
     }
+
+    .pill[data-state="thinking"] .chip { color: var(--sage); background: rgba(159, 191, 177, 0.12); }
+    .pill[data-state="asking"] .chip { color: var(--amber-text); background: var(--amber-ground); }
   </style>
 </head>
 <body>
-
-  <div class="hud-pill" id="hud-pill-container">
-    <div class="hud-left">
-      <div class="wave-container recording" id="wave-container">
-        <div class="wave-bar"></div>
-        <div class="wave-bar"></div>
-        <div class="wave-bar"></div>
-        <div class="wave-bar"></div>
-      </div>
-      <div class="hud-text" id="hud-transcript-preview">Listening... Speak your command</div>
-    </div>
-    <div class="hud-status-chip" id="hud-status-chip">🔴 Recording</div>
+  <div class="pill overlay-surface" id="pill" data-state="listening">
+    <div class="wave" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+    <p class="text" id="text">Listening…</p>
+    <span class="chip" id="chip">Listening</span>
   </div>
 
   <script>
-    // Live HUD IPC Event updates listener
+    // Called from main.py's HUDWindow.update_hud_state(event, {text, spoken}).
+    const STATES = {
+      RECORDING_STARTED: ["listening", "Listening", () => "Listening…"],
+      STT_PREVIEW: ["thinking", "Heard", (d) => d.text || "Transcribing…"],
+      AGENT_THINKING: ["thinking", "Thinking", (d) => d.text || "Working out what to do…"],
+      TTS_SPEAKING: ["speaking", "Jarvis", (d) => d.spoken || d.text || ""],
+      IDLE: ["idle", "Ready", () => "Hold your shortcut to talk"],
+    };
+
     function updateHUDState(event, data) {
-      const textEl = document.getElementById("hud-transcript-preview");
-      const chipEl = document.getElementById("hud-status-chip");
-      const waveEl = document.getElementById("wave-container");
-
-      if (!textEl || !chipEl) return;
-
-      if (event === "RECORDING_STARTED") {
-        textEl.textContent = "Listening... Speak your command";
-        chipEl.textContent = "🔴 Recording";
-        chipEl.style.color = "#ec4899";
-        chipEl.style.backgroundColor = "rgba(236, 72, 153, 0.18)";
-        chipEl.style.borderColor = "rgba(236, 72, 153, 0.4)";
-        if (waveEl) waveEl.classList.add("recording");
-      } else if (event === "STT_PREVIEW") {
-        textEl.textContent = (data && data.text) ? data.text : "Transcribing...";
-        chipEl.textContent = "🎙️ Transcribing";
-        if (waveEl) waveEl.classList.add("recording");
-      } else if (event === "AGENT_THINKING") {
-        textEl.textContent = (data && data.text) ? data.text : "Inferring action...";
-        chipEl.textContent = "⚙️ Thinking";
-        chipEl.style.color = "#f59e0b";
-        chipEl.style.backgroundColor = "rgba(245, 158, 11, 0.18)";
-        chipEl.style.borderColor = "rgba(245, 158, 11, 0.4)";
-        if (waveEl) waveEl.classList.remove("recording");
-      } else if (event === "TTS_SPEAKING") {
-        textEl.textContent = (data && data.spoken) ? data.spoken : "Speaking response...";
-        chipEl.textContent = "🔊 Speaking";
-        chipEl.style.color = "#10b981";
-        chipEl.style.backgroundColor = "rgba(16, 185, 129, 0.18)";
-        chipEl.style.borderColor = "rgba(16, 185, 129, 0.4)";
-        if (waveEl) waveEl.classList.add("recording");
-      } else if (event === "IDLE") {
-        textEl.textContent = "Hold [Ctrl + Space] to speak";
-        chipEl.textContent = "🟢 Ready";
-        chipEl.style.color = "#10b981";
-        chipEl.style.backgroundColor = "rgba(16, 185, 129, 0.18)";
-        chipEl.style.borderColor = "rgba(16, 185, 129, 0.4)";
-        if (waveEl) waveEl.classList.remove("recording");
-      }
+      const entry = STATES[event];
+      if (!entry) return;
+      data = data || {};
+      const [state, chip, text] = entry;
+      const spoken = text(data);
+      // A spoken question that needs an answer ("I need your OK first…") gets the amber chip.
+      const asking = event === "TTS_SPEAKING" && /need your OK/i.test(spoken);
+      document.getElementById("pill").dataset.state = asking ? "asking" : state;
+      document.getElementById("chip").textContent = asking ? "Needs your OK" : chip;
+      const el = document.getElementById("text");
+      el.textContent = spoken;
+      el.title = spoken;
     }
   </script>
 </body>

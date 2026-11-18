@@ -18,11 +18,13 @@ from daemon.providers.base import BaseLLMProvider, BaseTTSProvider
 from daemon.providers.llm.ollama_llm_provider import OllamaLLMProvider
 from daemon.agent.fast_path_manager import FastPathManager
 from daemon.agent.tasks import BackgroundTask, TaskBoard, describe_step
+from daemon.agent.approval import approval_needed, is_approval, is_refusal
 
 # Background tasks: a request still working after PROMOTE_AFTER seconds, or about to run one of
 # BACKGROUND_TOOLS, gets a quick spoken reply and keeps going in the background.
 PROMOTE_AFTER = 4.0
 COMMAND_GRACE = 1.5
+APPROVAL_TIMEOUT = 300  # seconds a step waits for the user's OK
 BACKGROUND_TOOLS = {"execute_terminal_command", "Bash", "Edit"}
 BACKGROUND_MAX_STEPS = 6
 BACKGROUND_COMMAND_TIMEOUT = 300
@@ -40,6 +42,11 @@ CLAIMS_DONE = re.compile(r"^\s*(?:i(?:'ve|\s+have)?\s+\w+ed\b|i\s+(?:made|wrote|
 # A bare trailing "Claude" after one of these is the object of the sentence, not an address.
 OBJECT_WORDS = {"for", "to", "in", "into", "with", "on", "about", "of", "using", "from", "via", "through",
                 "the", "my", "your", "and", "or"}
+
+
+def approval_question(approval: Dict[str, str]) -> str:
+    label = str(approval.get("label", "")).strip().rstrip(".")
+    return f"I need your OK first: {label}. Say go ahead, or no."
 
 
 class AgentOrchestrator:
@@ -279,6 +286,18 @@ class AgentOrchestrator:
 
         print(f"\n[AgentOrchestrator] Processing voice query: \"{user_query}\"", flush=True)
 
+        # "Go ahead" / "no" answers a step that is waiting for the user's OK.
+        if self.task_board and self.task_board.awaiting_approval() and (is_approval(user_query) or is_refusal(user_query)):
+            approve = is_approval(user_query)
+            task = self.task_board.answer(approve)
+            spoken = "Okay, going ahead." if approve else "Okay, I won't do that."
+            print(f"[AgentOrchestrator] {'Approved' if approve else 'Refused'} task {task.id}: {task.approval}", flush=True)
+            if speak_output:
+                self._speak(spoken)
+            self.logger.log_turn(session_id, user_query, tool_executed="approve_task" if approve else "refuse_task",
+                                 spoken_response=spoken, meta={**meta, "outcome": "ok"})
+            return {"success": True, "tool": "approve_task", "final_spoken_summary": spoken}
+
         if self.task_board and CANCEL_PATTERN.match(user_query):
             cancelled = self.task_board.cancel()
             if cancelled:
@@ -316,14 +335,21 @@ class AgentOrchestrator:
 
         # Unified Data-Driven Fast-Path Interceptor (System Defaults + Dynamic Learned Rules)
         fast_match = None if provider is not self.llm_provider else self.fast_path_manager.match(user_query, active_model_name=self.get_active_model_name())
+        first_step = None
         if fast_match:
             print(f"[AgentOrchestrator] Intercepted Fast-Path Query ('{user_query}') -> Rule '{fast_match.get('rule_id')}'", flush=True)
-            return self._execute_fast_path_match(fast_match, user_query, session_id, speak_output, meta)
+            fp_args = {**fast_match.get("args", {}), "_raw_user_query": user_query}
+            if fast_match.get("tool", "none") != "none" and approval_needed(fast_match["tool"], fp_args):
+                # Shutting down etc.: same shortcut, but it waits for the user's OK like any other step.
+                first_step = {"tool": fast_match["tool"], "args": fast_match.get("args", {}), "status": "complete",
+                              "spoken_summary": fast_match.get("spoken_summary", "")}
+            else:
+                return self._execute_fast_path_match(fast_match, user_query, session_id, speak_output, meta)
 
         with self._history_lock:
             prior = list(self.conversation_history[-self.max_history_turns * 2:])
         run = dict(provider=provider, user_query=user_query, system_prompt=self.build_system_prompt(),
-                   prior=prior, meta=meta, session_id=session_id)
+                   prior=prior, meta=meta, session_id=session_id, first_step=first_step)
 
         if self.task_board is None:
             task = BackgroundTask(user_query, route_label)
@@ -345,11 +371,14 @@ class AgentOrchestrator:
                 self._speak(result.get("final_spoken_summary", ""))
             return result
 
-        ack = task.ack if task.ack and not CLAIMS_DONE.match(task.ack) else "On it."
-        ack = ack.rstrip()
-        if ack[-1:] not in ".!?":
-            ack += "."
-        ack += " I'll let you know when it's done."
+        if task.approval and task.approval.get("state") == "waiting":
+            ack = approval_question(task.approval)
+        else:
+            ack = task.ack if task.ack and not CLAIMS_DONE.match(task.ack) else "On it."
+            ack = ack.rstrip()
+            if ack[-1:] not in ".!?":
+                ack += "."
+            ack += " I'll let you know when it's done."
         print(f"[AgentOrchestrator] Task {task.id} continues in the background.", flush=True)
         self.task_board.emit("task_started", task)
         if speak_output:
@@ -357,8 +386,40 @@ class AgentOrchestrator:
         return {"success": True, "tool": "background_task", "background_task_id": task.id,
                 "final_spoken_summary": ack}
 
+    def _wait_for_approval(self, task: BackgroundTask, needs: Dict[str, str], update: Callable) -> str:
+        """Hold the step until the user says go ahead or no. Returns approved|refused|expired|cancelled|unavailable."""
+        if self.task_board is None:
+            return "unavailable"
+        task.approved = False
+        task.approval_event.clear()
+        task.approval = {"label": needs["label"], "detail": needs.get("detail", ""), "state": "waiting"}
+        task.current = "Waiting for your OK"
+        with task.lock:
+            already_background = task.background
+        if already_background:
+            update("task_needs_approval")  # the app asks out loud
+        else:
+            task.settled.set()  # the voice request replies now, with the question
+            update()
+        print(f"[AgentOrchestrator] Task {task.id} waiting for approval: {task.approval}", flush=True)
+        deadline = time.monotonic() + APPROVAL_TIMEOUT
+        state = ""
+        while not task.approval_event.wait(0.2):
+            if task.cancel_event.is_set():
+                state = "cancelled"
+                break
+            if time.monotonic() > deadline:
+                state = "expired"
+                break
+        if not state:
+            state = "approved" if task.approved else "refused"
+        task.approval["state"] = state
+        update()
+        return state
+
     def _run_react(self, task: BackgroundTask, provider: BaseLLMProvider, user_query: str, system_prompt: str,
-                   prior: List[Dict[str, str]], meta: Dict[str, Any], session_id: str) -> Dict[str, Any]:
+                   prior: List[Dict[str, str]], meta: Dict[str, Any], session_id: str,
+                   first_step: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """The ReAct loop: ask the model, run the tool it picks, feed observations back, repeat."""
         in_worker = self.task_board is not None
         if in_worker:
@@ -385,7 +446,10 @@ class AgentOrchestrator:
                 task.current = "Thinking…"
                 update()
                 history = prior if step == 1 else prior + trail
-                parsed = provider.process_voice_query(user_query, history, system_prompt)
+                if step == 1 and first_step:
+                    parsed = first_step  # a shortcut that still needs the user's OK
+                else:
+                    parsed = provider.process_voice_query(user_query, history, system_prompt)
                 print(f"[AgentOrchestrator ReAct Step {step}] LLM Response: {parsed}", flush=True)
                 if task.cancel_event.is_set():
                     status, final_spoken = "cancelled", "Stopped."
@@ -425,6 +489,25 @@ class AgentOrchestrator:
                 step_info = describe_step(tool_name, tool_args)
                 step_info["state"] = "running"
                 task.steps.append(step_info)
+                gate_args = {**tool_args, "_raw_user_query": user_query} if isinstance(tool_args, dict) else tool_args
+                needs = approval_needed(tool_name, gate_args)
+                if needs and needs["risk"] == "block":
+                    step_info["state"] = "failed"
+                    last_result = {"success": False, "stderr": needs["label"], "spoken_confirmation": needs["label"]}
+                    final_spoken, status = needs["label"], "failed"
+                    break
+                if needs:
+                    decision = self._wait_for_approval(task, needs, update)
+                    if decision != "approved":
+                        step_info["state"] = "skipped"
+                        last_result = {"success": True, "spoken_confirmation": ""}
+                        status = "cancelled"
+                        final_spoken = {
+                            "refused": "Okay, I didn't do it.",
+                            "expired": "I didn't hear an OK, so I didn't do it.",
+                            "cancelled": "Stopped.",
+                        }.get(decision, "That needs your OK, and I can't ask right now.")
+                        break
                 task.current = step_info["label"]
                 if tool_name in BACKGROUND_TOOLS:
                     task.ack = spoken_summary or task.ack

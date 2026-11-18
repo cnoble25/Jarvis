@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jarvis task panel</title>
+  <link rel="stylesheet" href="css/overlay.css">
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+  <style>
+    body {
+      width: 100vw;
+      /* The window is sized to the content (see layout() in panel.js); the margin leaves room for the shadow. */
+      padding: 8px;
+    }
+
+    .panel {
+      /* Fixed, so the height measures right even while the window is still tab-sized. */
+      width: calc(360px - 16px);
+      border-radius: var(--radius);
+      padding: 12px 14px 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: var(--t-meta);
+      color: var(--text-3);
+    }
+
+    .panel-head strong {
+      color: var(--text-2);
+    }
+
+    .panel-head .spacer { flex: 1; }
+
+    button {
+      font: inherit;
+      color: inherit;
+      border: 0;
+      background: none;
+      cursor: pointer;
+    }
+
+    .icon-button {
+      width: 28px;
+      height: 28px;
+      border-radius: var(--radius-small);
+      display: grid;
+      place-items: center;
+      color: var(--text-3);
+    }
+
+    .icon-button:hover { background: var(--ramp-4); color: var(--text); }
+
+    .tasks {
+      list-style: none;
+      display: grid;
+      gap: 14px;
+    }
+
+    .task + .task {
+      padding-top: 14px;
+      box-shadow: inset 0 1px 0 var(--ramp-4);
+    }
+
+    .task-top {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      font-size: var(--t-meta);
+    }
+
+    .state { font-weight: 700; color: var(--silt); }
+    .task.is-done .state { color: var(--sage); }
+    .task.is-failed .state { color: var(--coral-text); }
+    .task.is-cancelled .state { color: var(--text-3); }
+    .task.is-waiting .state { color: var(--amber-text); }
+
+    .time {
+      color: var(--text-3);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .task-top .spacer { flex: 1; }
+
+    .text-button {
+      font-size: var(--t-meta);
+      font-weight: 700;
+      color: var(--text-2);
+      padding: 2px 6px;
+      border-radius: var(--radius-small);
+    }
+
+    .text-button:hover { background: var(--ramp-4); color: var(--text); }
+
+    .title {
+      margin-top: 4px;
+      font-size: var(--t-body);
+      font-weight: 700;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .steps {
+      list-style: none;
+      margin-top: 8px;
+      display: grid;
+      gap: 4px;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 14px minmax(0, 1fr);
+      column-gap: 8px;
+      font-size: var(--t-meta);
+      line-height: 1.4;
+      color: var(--text-3);
+    }
+
+    .step::before {
+      content: "";
+      grid-row: 1 / span 2;
+      width: 10px;
+      height: 3px;
+      margin-top: 0.6em;
+      border-radius: 2px;
+      background: var(--sage-deep);
+    }
+
+    .step.is-running { color: var(--text); }
+    .step.is-running::before { background: var(--silt); animation: overlay-pulse 1.4s ease-in-out infinite; }
+    .step.is-failed { color: var(--coral-text); }
+    .step.is-failed::before { background: var(--coral); }
+    .step.is-skipped { text-decoration: line-through; }
+
+    .label {
+      overflow-wrap: anywhere;
+    }
+
+    .detail {
+      grid-column: 2;
+      font-family: var(--font-code);
+      font-size: 12px;
+      color: var(--text-3);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .result {
+      margin-top: 8px;
+      font-size: var(--t-body);
+      color: var(--text-2);
+      overflow-wrap: anywhere;
+    }
+
+    .task.is-failed .result { color: var(--coral-text); }
+
+    .approval {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      background: var(--amber-ground);
+      box-shadow: inset 0 0 0 1px var(--amber-edge);
+      display: grid;
+      gap: 8px;
+    }
+
+    .approval-label {
+      font-size: var(--t-meta);
+      font-weight: 700;
+      color: var(--amber-text);
+      overflow-wrap: anywhere;
+    }
+
+    .approval pre {
+      max-height: 6.5em;
+      overflow: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-family: var(--font-code);
+      font-size: 12px;
+      color: var(--text);
+      user-select: text;
+    }
+
+    .approval-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn {
+      min-height: 30px;
+      padding: 4px 12px;
+      border-radius: var(--radius-small);
+      font-size: var(--t-meta);
+      font-weight: 700;
+    }
+
+    .btn-primary { background: var(--silt); color: var(--ramp-1); }
+    .btn-primary:hover { background: #9adde3; }
+    .btn-secondary { background: var(--ramp-4); color: var(--text); box-shadow: inset 0 0 0 1px var(--ramp-6); }
+    .btn-secondary:hover { background: var(--ramp-5); }
+    .btn:disabled { opacity: 0.5; cursor: default; }
+
+    /* Collapsed: a small tab on the screen edge that still shows something is running. */
+    .tab {
+      width: 48px;
+      height: 56px;
+      border-radius: var(--radius);
+      display: grid;
+      place-items: center;
+      align-content: center;
+      gap: 4px;
+      font-size: var(--t-meta);
+      font-weight: 700;
+      color: var(--text-2);
+    }
+
+    .tab .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      /* Steady, not pulsing: the count beside it already says something is running. */
+      background: var(--silt);
+    }
+
+    .tab.is-waiting .dot { background: var(--amber-text); }
+
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <section class="panel overlay-surface" id="panel" aria-label="Jarvis tasks" hidden>
+    <header class="panel-head">
+      <strong>Jarvis</strong>
+      <span id="count"></span>
+      <span class="spacer"></span>
+      <button type="button" class="icon-button" id="collapse" title="Tuck away (tasks keep running)" aria-label="Tuck away">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </header>
+    <ol class="tasks" id="tasks"></ol>
+  </section>
+
+  <button type="button" class="tab overlay-surface" id="tab" title="Show Jarvis tasks" hidden>
+    <span class="dot" aria-hidden="true"></span>
+    <span id="tab-count"></span>
+  </button>
+
+  <script src="js/panel.js"></script>
+</body>
+</html>

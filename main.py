@@ -57,6 +57,22 @@ from daemon.memory.profiler_agent import MemoryProfilerAgent
 BASE_DIR = Path(__file__).resolve().parent
 INDEX_HTML_PATH = BASE_DIR / "ui" / "index.html"
 HUD_HTML_PATH = BASE_DIR / "ui" / "hud.html"
+PANEL_HTML_PATH = BASE_DIR / "ui" / "panel.html"
+
+# Always-on-top overlays (the pill, the task panel): XWayland override-redirect windows, which
+# KWin stacks above every managed window, fullscreen ones included, and which never take focus
+# or show up in the taskbar.
+OVERLAY_FLAGS = (Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint |
+                 Qt.WindowDoesNotAcceptFocus | Qt.BypassWindowManagerHint | Qt.Tool)
+KEEP_ON_TOP_MS = 1500  # re-raise while visible, in case another override-redirect popup lands on top
+
+
+def overlay_screen():
+    """The primary screen's rect and the room its Plasma panels take, for placing overlays."""
+    from daemon.overlay_layout import plasma_panel_insets
+    screen = QApplication.primaryScreen()
+    geo = screen.geometry()
+    return (geo.x(), geo.y(), geo.width(), geo.height()), plasma_panel_insets(0)
 
 DEFAULT_HOTKEY = "Super + Space"
 VALID_RISK_LEVELS = ("SAFE", "MEDIUM", "HIGH")
@@ -160,19 +176,75 @@ class DashboardWindow(QMainWindow):
             self.bridge.show_hud_signal.emit()
 
 
+class PanelBridgeApi(WebBridgeApi):
+    """The task panel's page talks to Jarvis like the dashboard does, and also sizes its window."""
+
+    def __init__(self, app_instance: 'JarvisApplication', window: 'EdgePanelWindow'):
+        super().__init__(app_instance)
+        self.window = window
+
+    @Slot(bool, int, int)
+    def layout(self, visible: bool, width: int, height: int):
+        self.window.apply_layout(visible, width, height)
+
+
+class EdgePanelWindow(QMainWindow):
+    """
+    Background tasks at the right edge of the screen, always on top. It appears while a task runs
+    (or needs an OK), can be tucked into a small tab, and is sized to its content so it never
+    blocks clicks anywhere else.
+    """
+
+    def __init__(self, app_instance: 'JarvisApplication', bridge: TriggerBridge):
+        super().__init__()
+        self.setWindowTitle("Jarvis Task Panel")
+        self.setWindowFlags(OVERLAY_FLAGS)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.resize(360, 120)
+
+        self.web_view = QWebEngineView(self)
+        self.web_view.page().setBackgroundColor(Qt.transparent)
+        self.setCentralWidget(self.web_view)
+        self.channel = QWebChannel(self.web_view.page())
+        self.api = PanelBridgeApi(app_instance, self)
+        self.channel.registerObject("jarvisBridge", self.api)
+        self.web_view.page().setWebChannel(self.channel)
+        self.web_view.load(QUrl.fromLocalFile(str(PANEL_HTML_PATH)))
+
+        self._keep_on_top = QTimer(self)
+        self._keep_on_top.setInterval(KEEP_ON_TOP_MS)
+        self._keep_on_top.timeout.connect(self.raise_)
+        bridge.dashboard_event_signal.connect(self.push_event)
+
+    def push_event(self, name: str, payload_json: str):
+        if name.startswith("task_"):
+            js = f"window.panelEvent && window.panelEvent({json.dumps(name)}, {payload_json});"
+            self.web_view.page().runJavaScript(js)
+
+    def apply_layout(self, visible: bool, width: int, height: int):
+        from daemon.overlay_layout import edge_panel_position
+        if not visible or height <= 0:
+            self._keep_on_top.stop()
+            self.hide()
+            return
+        screen, insets = overlay_screen()
+        max_h = screen[3] - insets["top"] - insets["bottom"] - 24
+        width, height = max(48, min(width, 480)), max(48, min(height, max_h))
+        x, y = edge_panel_position(screen, insets, width, height)
+        self.setGeometry(x, y, width, height)
+        if not self.isVisible():
+            self.show()
+            self._keep_on_top.start()
+        self.raise_()
+
+
 class HUDWindow(QMainWindow):
     def __init__(self, bridge: Optional[TriggerBridge] = None):
         super().__init__()
         self.bridge = bridge
         self.setWindowTitle("Jarvis HUD Pill")
-        self.setWindowFlags(
-            Qt.Window |
-            Qt.FramelessWindowHint |
-            Qt.WindowStaysOnTopHint |
-            Qt.WindowDoesNotAcceptFocus |
-            Qt.BypassWindowManagerHint |
-            Qt.Tool
-        )
+        self.setWindowFlags(OVERLAY_FLAGS)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WA_AlwaysStackOnTop, True)
@@ -185,17 +257,21 @@ class HUDWindow(QMainWindow):
         hud_url = QUrl.fromLocalFile(str(HUD_HTML_PATH))
         self.web_view.load(hud_url)
 
+        self._keep_on_top = QTimer(self)
+        self._keep_on_top.setInterval(KEEP_ON_TOP_MS)
+        self._keep_on_top.timeout.connect(self.raise_)
+
         if self.bridge:
             self.bridge.show_hud_signal.connect(self.show_hud)
             self.bridge.hide_hud_signal.connect(self.hide_hud)
             self.bridge.update_hud_signal.connect(self.update_hud_state)
 
     def position_at_bottom_center(self):
-        screen = QApplication.primaryScreen()
-        if screen:
-            geo = screen.availableGeometry()
-            x = int(geo.x() + (geo.width() - 520) / 2)
-            y = int(geo.y() + geo.height() - 90)
+        """Bottom centre of the primary screen, just above the Plasma panel (not on top of it)."""
+        from daemon.overlay_layout import pill_position
+        if QApplication.primaryScreen():
+            screen, insets = overlay_screen()
+            x, y = pill_position(screen, insets, 520, 68)
             self.setGeometry(x, y, 520, 68)
             self.move(x, y)
 
@@ -213,12 +289,14 @@ class HUDWindow(QMainWindow):
         self.show()
         self.raise_()
         QTimer.singleShot(20, self._ensure_on_top)
+        self._keep_on_top.start()
 
     def hide_hud(self):
         """
         Hides HUD pill when idle.
         """
         print("[HUDWindow] ⏹️ Hiding HUD Pill...", flush=True)
+        self._keep_on_top.stop()
         self.hide()
 
     def update_hud_state(self, event_name: str, text: str = ""):
@@ -299,6 +377,7 @@ class JarvisApplication:
         self.qt_app: Optional[QApplication] = None
         self.dashboard_win: Optional[DashboardWindow] = None
         self.hud_win: Optional[HUDWindow] = None
+        self.panel_win: Optional[EdgePanelWindow] = None
 
     def handle_ipc_command(self, action: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -320,6 +399,13 @@ class JarvisApplication:
             return {"success": True, "new_shortcut": new_shortcut}
         elif action == "get_tasks":
             return {"success": True, "tasks": self.orchestrator.task_board.snapshot()}
+        elif action == "submit_text":
+            return self.submit_text(params.get("text", ""))
+        elif action == "answer_task":
+            task = self.orchestrator.task_board.answer(bool(params.get("approve")), params.get("id") or None)
+            if not task:
+                return {"success": False, "error": "That step isn't waiting anymore."}
+            return {"success": True, "id": task.id}
         elif action == "cancel_task":
             task = self.orchestrator.task_board.cancel(params.get("id") or None)
             if not task:
@@ -610,11 +696,15 @@ class JarvisApplication:
         if event == "task_finished" and task.get("status") != "cancelled":
             threading.Thread(target=self._announce_task, args=(task,), daemon=True,
                              name="JarvisTaskAnnounce").start()
+        elif event == "task_needs_approval":
+            from daemon.agent.orchestrator import approval_question
+            threading.Thread(target=self._announce_task, args=(task, approval_question(task.get("approval") or {}), "Needs your OK"),
+                             daemon=True, name="JarvisTaskAsk").start()
 
-    def _announce_task(self, task: Dict[str, Any]):
-        """Say that a background task finished, once Jarvis isn't in the middle of a voice request."""
-        text = task.get("result") or "Finished."
-        title = "Done" if task.get("status") == "done" else "Couldn't finish"
+    def _announce_task(self, task: Dict[str, Any], text: str = "", title: str = ""):
+        """Say that a background task finished (or needs an OK), once Jarvis isn't mid-request."""
+        text = text or task.get("result") or "Finished."
+        title = title or ("Done" if task.get("status") == "done" else "Couldn't finish")
         query = " ".join(str(task.get("title", "")).split())
         query = query if len(query) <= 60 else query[:59] + "…"
         notify = shutil.which("notify-send")
@@ -739,6 +829,64 @@ class JarvisApplication:
         except Exception as e:
             print(f"[Jarvis Main Error] Audio recording error: {e}", flush=True)
 
+    def _handle_request(self, user_text: str, speak_output: bool = True):
+        """Run one request (spoken or typed) through the agent, then refresh the dashboard and learn from it."""
+        # 1 & 2. Agent Orchestrator processes query & executes tool calls if needed
+        result = self.orchestrator.process_voice_query(user_text, speak_output=speak_output)
+
+        final_spoken = result.get("final_spoken_summary", "Task complete.")
+        # The orchestrator has logged the turn by now: refresh the dashboard's lists.
+        self._dashboard_event("turn_logged", {"text": user_text, "reply": final_spoken})
+        if speak_output:
+            self.voice_state = "speaking"
+            self.bridge.update_hud_signal.emit("TTS_SPEAKING", final_spoken)
+
+        # 3 & 4. Memory profiler and shortcut learner run in the background so the reply returns instantly.
+        def _bg_post_processing():
+            try:
+                mem_provider = self.provider_factory.memory_llm_provider
+                old_p = self.profiler.llm_provider
+                self.profiler.llm_provider = mem_provider
+                profile_res = self.profiler.update_profile(force=False)
+                self.profiler.llm_provider = old_p
+
+                profile_content = profile_res.get("content", "") if isinstance(profile_res, dict) else ""
+                self.fast_path_agent.update_fast_paths(
+                    transcripts=self.logger.read_all_transcripts(),
+                    user_profile=profile_content,
+                    llm_provider=mem_provider
+                )
+            except Exception as err:
+                print(f"[Jarvis Post-Processing Warning] Background profiling error: {err}", flush=True)
+
+        threading.Thread(target=_bg_post_processing, daemon=True, name="JarvisPostProcessingThread").start()
+        return result
+
+    def submit_text(self, text: str) -> Dict[str, Any]:
+        """A typed request from the dashboard: same pipeline as voice, without speech in or out."""
+        text = " ".join(str(text or "").split())[:500]
+        if not text:
+            return {"success": False, "error": "Type a request first."}
+        if self.voice_state != "idle":
+            return {"success": False, "error": "Jarvis is busy with another request. Try again in a moment."}
+        self.voice_state = "thinking"
+        self._dashboard_event("thinking")
+        self._dashboard_event("heard", {"text": text, "alternatives": []})
+        print(f"[Jarvis Main] Typed request: \"{text}\"", flush=True)
+
+        def _run():
+            try:
+                self.logger.set_next_turn_meta({"source": "typed"})
+                self._handle_request(text, speak_output=False)
+            except Exception as err:
+                print(f"[Jarvis Main Error] Typed request error: {err}", flush=True)
+            finally:
+                self.voice_state = "idle"
+                self._dashboard_event("idle")
+
+        threading.Thread(target=_run, daemon=True, name="JarvisTypedRequest").start()
+        return {"success": True}
+
     def on_hotkey_release(self):
         """
         Callback when hold-to-talk key is released (after 200ms buffer).
@@ -778,35 +926,7 @@ class JarvisApplication:
                 if alternatives:
                     self.logger.set_next_turn_meta({"heard_alternatives": alternatives})
 
-                # 1 & 2. Agent Orchestrator processes query & executes tool calls if needed
-                result = self.orchestrator.process_voice_query(user_text, speak_output=True)
-
-                final_spoken = result.get("final_spoken_summary", "Task complete.")
-                # The orchestrator has logged the turn by now: refresh the dashboard's lists.
-                self._dashboard_event("turn_logged", {"text": user_text, "reply": final_spoken})
-                self.voice_state = "speaking"
-                self.bridge.update_hud_signal.emit("TTS_SPEAKING", final_spoken)
-
-                # 3 & 4. Run Memory Profiler & Fast-Path Creator Agent in background thread so voice response returns instantly!
-                def _bg_post_processing():
-                    try:
-                        mem_provider = self.provider_factory.memory_llm_provider
-                        # Temporarily update profiler's provider if overridden
-                        old_p = self.profiler.llm_provider
-                        self.profiler.llm_provider = mem_provider
-                        profile_res = self.profiler.update_profile(force=False)
-                        self.profiler.llm_provider = old_p
-
-                        profile_content = profile_res.get("content", "") if isinstance(profile_res, dict) else ""
-                        self.fast_path_agent.update_fast_paths(
-                            transcripts=self.logger.read_all_transcripts(),
-                            user_profile=profile_content,
-                            llm_provider=mem_provider
-                        )
-                    except Exception as err:
-                        print(f"[Jarvis Post-Processing Warning] Background profiling error: {err}", flush=True)
-
-                threading.Thread(target=_bg_post_processing, daemon=True, name="JarvisPostProcessingThread").start()
+                self._handle_request(user_text, speak_output=True)
 
             except Exception as e:
                 print(f"[Jarvis Main Error] Voice processing error: {e}", flush=True)
@@ -833,6 +953,9 @@ class JarvisApplication:
             self.hud_win = HUDWindow(bridge=self.bridge)
             # Wispr Flow Mechanic: Hidden by default when idle!
             self.hud_win.hide_hud()
+
+        if PANEL_HTML_PATH.exists():
+            self.panel_win = EdgePanelWindow(app_instance=self, bridge=self.bridge)
 
         print("[Jarvis Main] Native Desktop GUI & Wispr Flow HUD ready.")
         print("[Jarvis Main] Press & hold [Super + Space] anywhere on your computer to talk to Jarvis!")

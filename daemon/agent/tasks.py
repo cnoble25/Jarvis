@@ -41,6 +41,10 @@ class BackgroundTask:
         self.steps: List[Dict[str, str]] = []
         self.result = ""
         self.ack = ""  # first spoken line from the model, used for the quick reply
+        # A step waiting for the user's OK: {"label", "detail", "state": waiting|approved|refused|expired}.
+        self.approval: Optional[Dict[str, str]] = None
+        self.approval_event = threading.Event()
+        self.approved = False
         self.final_result: Dict[str, Any] = {}
         # Set once the foreground stops waiting and the task is announced on completion instead.
         self.background = False
@@ -62,6 +66,7 @@ class BackgroundTask:
             "current": self.current,
             "steps": [dict(s) for s in self.steps],
             "result": self.result,
+            "approval": dict(self.approval) if self.approval else None,
             "background": self.background,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
@@ -105,6 +110,19 @@ class TaskBoard:
             self.listener(event, task.to_dict())
         except Exception as err:
             print(f"[TaskBoard Warning] Listener failed: {err}", flush=True)
+
+    def awaiting_approval(self) -> List[BackgroundTask]:
+        with self._lock:
+            return [t for t in self._tasks if not t.finished and t.approval and t.approval.get("state") == "waiting"]
+
+    def answer(self, approve: bool, task_id: Optional[str] = None) -> Optional[BackgroundTask]:
+        """Approve or refuse the step a task is waiting on (the newest one when no id is given)."""
+        waiting = self.awaiting_approval()
+        task = next((t for t in waiting if t.id == task_id), None) if task_id else (waiting[-1] if waiting else None)
+        if task:
+            task.approved = approve
+            task.approval_event.set()
+        return task
 
     def cancel(self, task_id: Optional[str] = None) -> Optional[BackgroundTask]:
         """Cancel one task, or the newest running background task."""
