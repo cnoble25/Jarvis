@@ -2325,3 +2325,31 @@ textarea.input {
     filter: brightness(1.12);
   }
 }
+
+/* Skills Jarvis wrote: review the code before approving. */
+.skill {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.skill-actions {
+  display: flex;
+  gap: var(--s-2);
+  align-items: start;
+}
+
+.skill-code {
+  margin-top: var(--s-2);
+}
+
+.skill-code pre {
+  max-height: 22rem;
+  overflow: auto;
+  margin: var(--s-2) 0 0;
+  white-space: pre;
+}
+
+@media (max-width: 640px) {
+  .skill {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

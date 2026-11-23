@@ -17,6 +17,7 @@ from daemon.memory.profiler_agent import load_user_profile
 from daemon.providers.base import VOLATILE_CONTEXT_TAG, BaseLLMProvider, BaseTTSProvider
 from daemon.providers.llm.ollama_llm_provider import OllamaLLMProvider
 from daemon.agent.fast_path_manager import FastPathManager
+from daemon.agent.pattern_miner import clean_args
 from daemon.agent.tasks import BackgroundTask, TaskBoard, describe_step
 from daemon.agent.approval import approval_needed, is_approval, is_refusal
 from daemon.os_interface import get_os
@@ -91,6 +92,8 @@ class AgentOrchestrator:
         self.routes: List[tuple] = []
         # Called with the route label when a request is routed, so the HUD can say who's answering.
         self.route_listener: Optional[Callable[[str], None]] = None
+        # Called after Claude Code saves a skill (new or changed), so the dashboard can show it for review.
+        self.skill_listener: Optional[Callable[[Dict[str, Any]], None]] = None
 
         # Set by the app to run slow requests as background tasks; None keeps everything inline.
         self.task_board: Optional[TaskBoard] = None
@@ -199,6 +202,7 @@ class AgentOrchestrator:
             "   - SINGLE-TOOL MULTI-ACTION EFFICIENCY: `media_play_pause` accepts an ARRAY of action objects! For multi-intent media requests (such as \"Pause Spotify, play YouTube\"), execute ALL media actions in a single array `[{\"action\": \"pause\", \"player\": \"spotify\"}, {\"action\": \"play\", \"player\": \"youtube\"}]` in Step 1 with \"status\": \"complete\". Do NOT split single-tool media queries across multiple ReAct steps!\n"
             "   - MULTI-TOOL QUERIES (DIFFERENT TOOLS): ONLY set \"status\": \"continue\" across ReAct steps if a query requires TWO DIFFERENT tools (e.g. `close_app` for Steam AND `media_play_pause` for Spotify) that cannot be combined into a single tool call.\n"
             "   - For multi-step jobs (installing or setting something up, organizing or editing files, coding, research across several pages), use 'claude_code_task' with the whole task described in plain words: Claude Code works through it on its own. Use 'execute_terminal_command' only for a single, simple command.\n"
+            "   - NEW ABILITIES: when the user asks Jarvis to learn to do something it has no tool for (\"learn how to...\", \"make a command that...\", \"from now on when I say X, do Y\"), use 'claude_code_task' and ask it to build and save a reusable skill for it. Skills the user approved appear in <available_tools> like any other tool.\n"
             "   - For file system operations (creating directories with mkdir, writing text to files, reading files, process checks), use \"tool\": \"execute_terminal_command\" with \"args\": {\"command\": \"...\"}.\n"
             "   - CRITICAL: To launch desktop apps, ALWAYS set \"tool\": \"app_launcher\" and pass app name in args.\n"
             "   - CRITICAL: To close, exit, or terminate running desktop apps, ALWAYS set \"tool\": \"close_app\" and pass app_name in args (e.g. {\"app_name\": \"steam\"}).\n"
@@ -350,8 +354,28 @@ class AgentOrchestrator:
                         self.route_listener(label)
                 break
 
-        # Unified Data-Driven Fast-Path Interceptor (System Defaults + Dynamic Learned Rules)
+        # Built-in shortcuts first, then what Jarvis learned from the log (daemon/agent/pattern_miner.py).
         fast_match = None if provider is not self.llm_provider else self.fast_path_manager.match(user_query, active_model_name=self.get_active_model_name())
+        if route_label:
+            meta["served_by"] = {"kind": "claude_code" if route_label == "Claude Code" else "route", "label": route_label}
+        elif fast_match:
+            meta["served_by"] = {"kind": "fast_path", "rule_id": fast_match.get("rule_id")}
+        else:
+            learned = self._match_learned(user_query, meta)
+            if learned and "context" in learned and not self._replayable(learned["tool"]):
+                learned = None  # a context rule's resolver picked a tool that is never replayed
+            if learned and learned.get("context") is not None:
+                meta["context"] = learned["context"]  # what the rule's resolver looked up
+            if learned and learned["mode"] == "ignore":
+                return self._ignore_noise(user_query, learned, session_id, meta)
+            if learned and learned["mode"] == "active":
+                fast_match = {"rule_id": learned["rule"]["id"], "tool": learned["tool"], "args": learned["args"],
+                              "spoken_summary": learned["rule"].get("spoken_summary", ""), "action_type": "tool"}
+                meta["served_by"] = {"kind": "learned", "rule_id": learned["rule"]["id"]}
+            elif learned:
+                # Shadow: the model still answers; the log keeps what the rule would have done.
+                meta["pattern_prediction"] = {"rule_id": learned["rule"]["id"], "tool": learned["tool"],
+                                              "args": clean_args(learned["args"])}
         first_step = None
         # "Jarvis, ..." ends a Claude follow-up window; anything else said in it goes back to Claude
         # (shortcut commands like "pause music" still run instantly).
@@ -361,6 +385,8 @@ class AgentOrchestrator:
         if followup:
             route_label = "Claude Code"
             meta["route"] = {"label": "Claude Code", "model": self.claude_code_model(), "followup": True}
+            meta["served_by"] = {"kind": "claude_code", "label": "Claude Code", "followup": True}
+            meta.pop("pattern_prediction", None)
             print(f"[AgentOrchestrator] Follow-up to Claude Code: \"{user_query}\"", flush=True)
             if self.route_listener:
                 self.route_listener("Claude Code")
@@ -496,7 +522,8 @@ class AgentOrchestrator:
                     else "No answer from the user, so this step didn't run."}
 
         def jarvis_tools() -> List[Dict[str, Any]]:
-            out = []
+            from daemon.tools.skills import SAVE_SKILL_TOOL
+            out = [dict(SAVE_SKILL_TOOL)]
             for tool_id, manifest in sorted(self.registry._tools.items()):
                 if tool_id in CLAUDE_CODE_SKIPS or manifest is None:
                     continue
@@ -505,6 +532,8 @@ class AgentOrchestrator:
             return out
 
         def call_tool(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+            if name == "save_skill":
+                return self._save_skill(args, task_text)
             if name not in self.registry._tools or name in CLAUDE_CODE_SKIPS:
                 return {"text": f"Unknown Jarvis tool '{name}'.", "is_error": True}
             run_args = {**args, "_raw_user_query": task_text}
@@ -581,6 +610,7 @@ class AgentOrchestrator:
                     parsed = first_step  # a shortcut that still needs the user's OK
                 else:
                     parsed = provider.process_voice_query(user_query, history, system_prompt)
+                model_decided = step == 1 and not first_step
                 print(f"[AgentOrchestrator ReAct Step {step}] LLM Response: {parsed}", flush=True)
                 if task.cancel_event.is_set():
                     status, final_spoken = "cancelled", "Stopped."
@@ -610,6 +640,11 @@ class AgentOrchestrator:
                         tool_name = "none"
 
                 trail.append({"role": "assistant", "content": json.dumps(last_parsed)})
+                if model_decided and "served_by" not in meta:
+                    # What the model chose for this request: the shortcut learner's evidence.
+                    info = provider.get_provider_info() if hasattr(provider, "get_provider_info") else {}
+                    meta["served_by"] = {"kind": "llm", "model": info.get("model_name", "")}
+                    meta["llm_decision"] = {"tool": tool_name or "none", "args": clean_args(tool_args)}
 
                 if tool_name in ["none", "None", "", None]:
                     final_spoken = spoken_summary or "I'm here to help."
@@ -752,6 +787,57 @@ class AgentOrchestrator:
         task.settled.set()
         update("task_finished")
         return last_result
+
+    def _save_skill(self, args: Dict[str, Any], task_text: str) -> Dict[str, Any]:
+        """Claude Code's save_skill: store the skill unapproved; the user approves it in the dashboard."""
+        from daemon.tools.skills import SkillError
+        store = self.registry.skills
+        taken = [t for t in self.registry._tools if not self.registry.is_skill(t)]
+        try:
+            skill = store.save(args, taken=taken, source_request=task_text.split("\n\n")[0])
+        except SkillError as err:
+            return {"text": f"Not saved: {err}", "is_error": True}
+        self.registry.reload_tools()  # a changed skill stops being usable until it's approved again
+        print(f"[AgentOrchestrator] Claude Code saved skill '{skill['id']}' ({skill['risk_level']}); waiting for approval.", flush=True)
+        if self.skill_listener:
+            try:
+                self.skill_listener(skill)
+            except Exception as err:
+                print(f"[AgentOrchestrator Warning] Skill listener failed: {err}", flush=True)
+        return {"text": f"Saved skill '{skill['id']}'. It can't run until the user approves it in the Jarvis "
+                        "dashboard (Commands page); tell them so.", "is_error": False}
+
+    def _replayable(self, tool: str) -> bool:
+        from daemon.agent.pattern_miner import NEVER_LEARN
+        return tool in self.registry._tools and tool not in NEVER_LEARN
+
+    def _match_learned(self, user_query: str, meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """A learned rule for this request (see FastPathManager.match_learned), or None."""
+        alts = meta.get("heard_alternatives") or []
+        confidence = None
+        if alts and meta.get("source") != "typed":
+            try:
+                confidence = max(float(a.get("probability", 0)) for a in alts)
+            except (TypeError, ValueError):
+                confidence = None
+        match_learned = getattr(self.fast_path_manager, "match_learned", None)
+        if match_learned is None:
+            return None
+        try:
+            return match_learned(user_query, heard_confidence=confidence)
+        except Exception as err:
+            print(f"[AgentOrchestrator Warning] Learned rule matching failed: {err}", flush=True)
+            return None
+
+    def _ignore_noise(self, user_query: str, learned: Dict[str, Any], session_id: str,
+                      meta: Dict[str, Any]) -> Dict[str, Any]:
+        """Background speech Jarvis has learned isn't meant for it: no model call, no reply."""
+        rule_id = learned["rule"]["id"]
+        print(f"[AgentOrchestrator] Ignoring \"{user_query}\": low-confidence speech that was never a request "
+              f"(rule {rule_id}).", flush=True)
+        self.logger.log_turn(session_id, user_query, tool_executed="ignored", spoken_response="",
+                             meta={**meta, "served_by": {"kind": "noise", "rule_id": rule_id}, "outcome": "ok"})
+        return {"success": True, "tool": "none", "ignored": True, "final_spoken_summary": ""}
 
     def _execute_fast_path_match(
         self,

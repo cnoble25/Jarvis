@@ -8,6 +8,7 @@ Commands the model writes are sorted into three groups:
 The allowlist is deliberately small: an unknown command asks first.
 """
 
+import json
 import re
 import shlex
 from typing import Any, Dict, List, Optional, Tuple
@@ -170,7 +171,21 @@ def approval_needed(tool: str, args: Any) -> Optional[Dict[str, str]]:
             return {"label": "Shut down the computer", "detail": "", "risk": "confirm"}
         if action in ("reboot", "restart") or re.search(r"restart|reboot", raw):
             return {"label": "Restart the computer", "detail": "", "risk": "confirm"}
+        return None
+    skill = _skill(tool)
+    if skill and skill.get("risk_level") == "HIGH":
+        shown = {k: v for k, v in a.items() if not str(k).startswith("_")}
+        return {"label": f"Run the skill \"{skill.get('name', tool)}\"", "detail": json.dumps(shown)[:600], "risk": "confirm"}
     return None
+
+
+def _skill(tool: str) -> Optional[Dict[str, Any]]:
+    """The manifest of a skill Jarvis wrote, if tool is one (HIGH-risk skills ask before every run)."""
+    try:
+        from daemon.tools.skills import SkillStore
+        return SkillStore().get(tool)
+    except Exception:
+        return None
 
 
 def _words(text: str) -> List[str]:

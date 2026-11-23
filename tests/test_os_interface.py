@@ -71,7 +71,7 @@ def test_supported_oses_implement_every_action(cls):
     public = [n for n, v in vars(OSInterface).items() if callable(v) and not n.startswith("_") and n != "unsupported"]
     missing = [n for n in public if getattr(cls, n) is getattr(OSInterface, n)
                and n not in ("temp_audio_dir", "no_media_players_message", "overlay_insets", "unholdable_keys", "prepare_overlay_window",
-                             "show_in_dock", "bring_app_forward")]
+                             "show_in_dock", "bring_app_forward", "running_apps")]
     assert missing == []
     assert all(cls().power_command(a) for a in POWER_ACTIONS)
 

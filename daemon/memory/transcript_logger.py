@@ -9,7 +9,7 @@ import json
 import uuid
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
@@ -34,12 +34,12 @@ def parse_bucket_name(arn_or_name: str) -> str:
 
 
 class TranscriptLogger:
-    def __init__(self, log_dir: Optional[str] = None, max_local_turns: int = 50, max_s3_turns: int = 300):
+    def __init__(self, log_dir: Optional[str] = None, retention_days: int = 90, max_s3_turns: int = 300):
         """
         Initialize TranscriptLogger.
         
         :param log_dir: Custom directory for transcripts. Defaults to ~/.local/share/jarvis/transcripts/
-        :param max_local_turns: Maximum number of local transcript turns saved (default 50).
+        :param retention_days: Days of local transcripts kept (default 90).
         :param max_s3_turns: Maximum number of transcript records stored in S3 bucket (default 300).
         """
         if log_dir is None:
@@ -49,7 +49,8 @@ class TranscriptLogger:
             self.log_dir = Path(log_dir)
             
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        self.max_local_turns = max_local_turns
+        self.retention_days = retention_days
+        self.last_record: Optional[Dict[str, Any]] = None  # the newest turn (context rules' "last_action")
         # Extra fields for the next logged turn (e.g. the transcription alternatives), set by the daemon.
         self._next_turn_meta: Dict[str, Any] = {}
         self._write_lock = threading.RLock()
@@ -69,7 +70,6 @@ class TranscriptLogger:
         self._sync_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
-        # Enforce max 50 local turns cap on initialization
         self.prune_local_logs()
 
         # Trigger auto-sync on application startup if S3 sync enabled
@@ -78,38 +78,15 @@ class TranscriptLogger:
 
     def prune_local_logs(self):
         """
-        Enforces maximum local transcript limit (50 turns).
-        Deletes older local JSONL records/files exceeding max_local_turns.
+        Delete daily transcript files older than retention_days. The shortcut learner needs a long
+        history: a pattern has to repeat several times before it may skip the model.
         """
-        all_records = self.read_all_transcripts()
-        if len(all_records) <= self.max_local_turns:
-            return
-
-        print(f"[TranscriptLogger] Pruning local transcript logs ({len(all_records)} records -> max {self.max_local_turns})...", flush=True)
-        keep_records = all_records[-self.max_local_turns:]
-        keep_ids = set(r.get("record_id") for r in keep_records)
-
+        cutoff = (datetime.now().astimezone() - timedelta(days=self.retention_days)).date().isoformat()
         for log_file in sorted(self.log_dir.glob("*.jsonl")):
-            kept_lines = []
-            with open(log_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line_str = line.strip()
-                    if not line_str:
-                        continue
-                    try:
-                        rec = json.loads(line_str)
-                        if rec.get("record_id") in keep_ids:
-                            kept_lines.append(line_str)
-                    except Exception:
-                        pass
-
-            if kept_lines:
-                with open(log_file, "w", encoding="utf-8") as f:
-                    for kl in kept_lines:
-                        f.write(kl + "\n")
-            else:
+            if log_file.stem < cutoff:  # files are named YYYY-MM-DD
                 try:
                     os.remove(log_file)
+                    print(f"[TranscriptLogger] Removed transcripts older than {self.retention_days} days: {log_file.name}", flush=True)
                 except OSError:
                     pass
 
@@ -192,13 +169,16 @@ class TranscriptLogger:
         elif self._next_turn_meta:
             record.update(self.pop_next_turn_meta())
 
+        self.last_record = record
         log_path = self.get_todays_log_file()
+        new_day = not log_path.exists()
         try:
             with self._write_lock:
                 with open(log_path, "a", encoding="utf-8") as f:
                     f.write(json.dumps(record, default=str) + "\n")
                 print(f"[TranscriptLogger] Turn logged to {log_path.name} (ID: {record['record_id'][:8]})", flush=True)
-                self.prune_local_logs()
+                if new_day:
+                    self.prune_local_logs()
         except Exception as e:
             print(f"[TranscriptLogger Error] Failed to write transcript log: {e}", flush=True)
 

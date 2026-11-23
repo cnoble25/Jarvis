@@ -832,6 +832,10 @@ class ExecutionEngine:
         tool: Optional[ToolManifest] = self.registry.get_tool(tool_id)
         if not tool:
             return {"success": False, "stdout": "", "stderr": f"Custom tool '{tool_id}' not found in registry."}
+        if tool.execution.type == "skill":
+            # A skill Jarvis wrote: its own script, checked against the user's approval before it runs.
+            return self.registry.skills.run(tool_id, args, cancel=getattr(self._local, "cancel", None),
+                                            timeout=getattr(self._local, "command_timeout", None) or 60)
 
         template = tool.execution.template
         # Fill optional arguments the model left out with the tool's declared defaults ("label": "Timer").

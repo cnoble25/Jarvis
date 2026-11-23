@@ -67,6 +67,8 @@ class OSInterface:
     name = "Unknown OS"
     # Opens a URL or file with the default app (named in prompts and error hints).
     open_command = ""
+    # How Claude Code should treat this computer (its task briefing, claude_code_agent.py).
+    claude_code_context = "the user's computer"
 
     def unsupported(self, what: str) -> OSResult:
         return OSResult(False, error=f"{what} isn't supported on {self.name} yet.")
@@ -111,6 +113,29 @@ class OSInterface:
     def no_media_players_message(self) -> str:
         """Spoken when media_players() finds none (worded for what this OS can actually see)."""
         return "Nothing is playing right now."
+
+    # ---- Context (read-only: what learned rules' scripts may look up) ---------------------------
+
+    def front_app(self) -> Optional[str]:
+        """The name of the app in front (the one being used), or None if it can't be told or is Jarvis."""
+        return None
+
+    def running_apps(self) -> List[str]:
+        """Names of the installed apps that are running (by process name), best effort."""
+        try:
+            import psutil
+            names = {(p.info.get("name") or "").lower() for p in psutil.process_iter(["name"])}
+        except Exception:
+            return []
+        return sorted({a.name for a in self.installed_apps() if a.binary and a.binary.lower() in names})
+
+    def now_playing(self) -> Optional[Dict[str, str]]:
+        """{"player", "state" (playing/paused), "title", "artist"} for the media playing, or None."""
+        return None
+
+    def clipboard(self) -> Optional[str]:
+        """The clipboard's text, or None."""
+        return None
 
     # ---- Apps -------------------------------------------------------------------------------
 

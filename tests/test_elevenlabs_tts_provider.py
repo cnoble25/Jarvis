@@ -46,7 +46,9 @@ def test_unknown_voice_is_offered_first():
 
 
 def test_factory_lists_elevenlabs():
-    factory = ProviderFactory()
+    # Listing providers doesn't need any of them loaded (that would load a speech model).
+    with patch.object(ProviderFactory, "reload_active_providers", lambda self: None):
+        factory = ProviderFactory()
     assert "elevenlabs" in [x["id"] for x in factory.get_available_tts_providers()]
 
 
