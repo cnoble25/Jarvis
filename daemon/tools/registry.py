@@ -5,6 +5,7 @@ Manages JSON-based custom tool manifests and validates tool definitions.
 
 import os
 import json
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field, ValidationError
 
@@ -44,7 +45,10 @@ class ToolRegistry:
         
         self.config_dir = config_dir
         os.makedirs(self.config_dir, exist_ok=True)
-        
+        # Skills Jarvis wrote for itself live next to the tools folder (~/.config/jarvis/skills).
+        from .skills import SkillStore
+        self.skills = SkillStore(Path(self.config_dir).parent / "skills")
+
         self._tools: Dict[str, ToolManifest] = {}
         self._create_default_manifests()
         self.reload_tools()
@@ -132,7 +136,22 @@ class ToolRegistry:
                 except (json.JSONDecodeError, ValidationError) as e:
                     print(f"[ToolRegistry Error] Failed to parse manifest '{filename}': {e}", flush=True)
 
+        # Approved skills, unless a command with the same id exists (a skill never shadows one).
+        for data in self.skills.approved_manifests():
+            try:
+                manifest = ToolManifest.model_validate(data)
+            except ValidationError as e:
+                print(f"[ToolRegistry Error] Skill '{data.get('id')}' has an invalid manifest: {e}", flush=True)
+                continue
+            if manifest.id not in self._tools:
+                self._tools[manifest.id] = manifest
+                print(f"[ToolRegistry] Loaded skill: '{manifest.id}' ({manifest.name})", flush=True)
+
         return len(self._tools)
+
+    def is_skill(self, tool_id: str) -> bool:
+        tool = self._tools.get(tool_id)
+        return bool(tool and tool.execution.type == "skill")
 
     def register_tool(self, manifest_data: Dict[str, Any]) -> ToolManifest:
         """
@@ -152,6 +171,9 @@ class ToolRegistry:
         """
         Removes a custom tool by ID and deletes its JSON manifest file.
         """
+        if self.is_skill(tool_id):
+            del self._tools[tool_id]
+            return self.skills.delete(tool_id)
         if tool_id in self._tools:
             del self._tools[tool_id]
             file_path = os.path.join(self.config_dir, f"{tool_id}.json")

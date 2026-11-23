@@ -59,6 +59,8 @@ POWER = {
 class MacOS(OSInterface):
     name = "macOS"
     open_command = "open"
+    claude_code_context = ("their Mac (prefer Homebrew or user-level installs; open, osascript and the built-in "
+                           "command-line tools are available)")
     default_hotkey = "Alt + Space"  # Option + Space: Cmd + Space is Spotlight
 
     def keyboard(self, on_key, targets):
@@ -137,6 +139,43 @@ class MacOS(OSInterface):
         verb = APPLESCRIPT_MEDIA.get(action, "playpause")
         script = f'tell application "{player.id}" to {verb}'
         return self._result(["osascript", "-e", script], self._osascript(script), f"{player.id} didn't respond.")
+
+    # ---- Context ----------------------------------------------------------------------------
+
+    def front_app(self) -> Optional[str]:
+        try:
+            import AppKit
+            app = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
+            if not app or app.processIdentifier() == os.getpid():
+                return None  # Jarvis itself (its dashboard) is never "that"
+            return str(app.localizedName())
+        except Exception:
+            return None
+
+    def running_apps(self) -> List[str]:
+        try:
+            import AppKit
+            apps = AppKit.NSWorkspace.sharedWorkspace().runningApplications()
+            return sorted({str(a.localizedName()) for a in apps
+                           if a.activationPolicy() == AppKit.NSApplicationActivationPolicyRegular and a.localizedName()})
+        except Exception:
+            return []
+
+    def now_playing(self) -> Optional[Dict[str, str]]:
+        # Only players with an AppleScript API (browsers have none); "is running" never launches them.
+        for app in MEDIA_APPS:
+            proc = self._osascript(
+                f'if application "{app}" is running then',
+                f'tell application "{app}" to return (player state as text) & "|" & (name of current track) & "|" & (artist of current track)',
+                "end if")
+            parts = (proc.stdout or "").strip().split("|")
+            if proc.returncode == 0 and len(parts) == 3 and parts[0]:
+                return {"player": app, "state": parts[0], "title": parts[1], "artist": parts[2]}
+        return None
+
+    def clipboard(self) -> Optional[str]:
+        proc = self._run(["pbpaste"], timeout=3)
+        return proc.stdout if proc.returncode == 0 else None
 
     # ---- Desktop ----------------------------------------------------------------------------
 

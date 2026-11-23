@@ -391,7 +391,26 @@ class JarvisApplication:
         )
 
         from daemon.agent.fast_path_agent import FastPathCreatorAgent
-        self.fast_path_agent = FastPathCreatorAgent(fast_path_manager=self.orchestrator.fast_path_manager)
+        self.fast_path_agent = FastPathCreatorAgent(fast_path_manager=self.orchestrator.fast_path_manager,
+                                                    registry=self.registry)
+        self.orchestrator.skill_listener = self._on_skill_saved
+        # Background learning: requests the model handled get graded, and Claude Code writes cache rules
+        # for the ones worth it (daemon/agent/pattern_learner.py). "background_learning": false turns it off.
+        from daemon.agent.context_runtime import ContextRuntime
+        self.context_runtime = ContextRuntime(last_turn=lambda: self.logger.last_record)
+        self.orchestrator.fast_path_manager.runtime = self.context_runtime
+        from daemon.agent.pattern_learner import PatternLearner
+        self.pattern_learner = PatternLearner(
+            fast_paths=self.orchestrator.fast_path_manager,
+            registry=self.registry,
+            records=self.logger.read_all_transcripts,
+            grader=lambda: self.provider_factory.memory_llm_provider,
+            claude_model=lambda: self.orchestrator.claude_code_model(),
+            enabled=lambda: bool(self.provider_factory.settings.get("background_learning", True)),
+            on_saved=lambda: self.fast_path_agent.update_fast_paths(self.logger.read_all_transcripts()),
+            runtime=self.context_runtime,
+            on_helper_proposed=self._on_helper_proposed,
+        )
         self._wire_stt_vocabulary()
         self._ensure_local_models()
         self._warm_tts()
@@ -550,6 +569,27 @@ class JarvisApplication:
             rule_id = params.get("rule_id", "")
             success = self.orchestrator.fast_path_manager.delete_rule(rule_id)
             return {"success": success, "rule_id": rule_id}
+        elif action == "get_skills":
+            # Skills (new commands) and context helpers (new things learned rules can look up), both
+            # written by Claude Code and both waiting for the user's approval.
+            skills = [{**s, "kind": "skill"} for s in self.registry.skills.list()]
+            helpers = [{**h, "kind": "helper"} for h in self.context_runtime.helpers.list()]
+            return {"success": True, "skills": skills + helpers}
+        elif action == "approve_skill":
+            store = self.context_runtime.helpers if params.get("kind") == "helper" else self.registry.skills
+            skill = store.approve(str(params.get("skill_id", "")))
+            if not skill:
+                return {"success": False, "error": "That's gone. It may have been deleted."}
+            self.registry.reload_tools()
+            if params.get("kind") == "helper":  # rules waiting for this helper can start now
+                self.fast_path_agent.update_fast_paths(self.logger.read_all_transcripts())
+            print(f"[Jarvis Main] Approved {params.get('kind') or 'skill'} '{skill['id']}': Jarvis can use it now.", flush=True)
+            return {"success": True, "skill": skill}
+        elif action == "delete_skill":
+            store = self.context_runtime.helpers if params.get("kind") == "helper" else self.registry.skills
+            deleted = store.delete(str(params.get("skill_id", "")))
+            self.registry.reload_tools()
+            return {"success": deleted, "error": "" if deleted else "That's already gone."}
         elif action == "get_macros":
             from daemon.macros.macro_manager import get_macro_manager
             macros = get_macro_manager().list_macros()
@@ -793,6 +833,17 @@ class JarvisApplication:
         if self.voice_state == "idle":
             self.bridge.hide_hud_signal.emit()
 
+    def _on_helper_proposed(self, helper: Dict[str, Any]):
+        """Claude Code wants a new context helper for a learned rule: ask for a review."""
+        self._dashboard_event("skills_changed", {"skill_id": helper["id"]})
+        get_os().notify("Jarvis wants to learn something new",
+                        f"Review the helper \"{helper['name']}\" in the dashboard so a learned shortcut can use it.")
+
+    def _on_skill_saved(self, skill: Dict[str, Any]):
+        """Claude Code saved a skill: show it on the Commands page and ask for a review."""
+        self._dashboard_event("skills_changed", {"skill_id": skill["id"]})
+        get_os().notify("Jarvis learned a new skill", f"Review \"{skill['name']}\" in the dashboard to let Jarvis use it.")
+
     def _dashboard_event(self, name: str, payload: Optional[Dict[str, Any]] = None):
         try:
             self.bridge.dashboard_event_signal.emit(name, json.dumps(payload or {}))
@@ -934,11 +985,16 @@ class JarvisApplication:
                 self.profiler.llm_provider = old_p
 
                 profile_content = profile_res.get("content", "") if isinstance(profile_res, dict) else ""
+                transcripts = self.logger.read_all_transcripts()
                 self.fast_path_agent.update_fast_paths(
-                    transcripts=self.logger.read_all_transcripts(),
+                    transcripts=transcripts,
                     user_profile=profile_content,
                     llm_provider=mem_provider
                 )
+                # The model answered something no shortcut knew? Grade it, and maybe learn a rule for it.
+                latest = next((r for r in reversed(transcripts) if r.get("user_query") == user_text), None)
+                if latest is not None:
+                    self.pattern_learner.consider(latest)
             except Exception as err:
                 print(f"[Jarvis Post-Processing Warning] Background profiling error: {err}", flush=True)
 

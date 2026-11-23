@@ -36,6 +36,8 @@ POWER = {
 class LinuxOS(OSInterface):
     name = "Linux"
     open_command = "xdg-open"
+    claude_code_context = ("their Linux desktop (KDE Plasma on Bazzite, an immutable Fedora: prefer Flatpak, "
+                           "Homebrew or user-level installs over system package changes)")
     overlays_need_reraise = True
 
     def keyboard(self, on_key, targets):
@@ -92,6 +94,31 @@ class LinuxOS(OSInterface):
         return "/dev/shm" if os.path.exists("/dev/shm") else "/tmp"
 
     # ---- Media players (MPRIS) ----------------------------------------------------------------
+
+    def front_app(self) -> Optional[str]:
+        # X11 / XWayland windows only; native Wayland compositors don't tell other apps what's focused.
+        proc = self._run(["xdotool", "getactivewindow", "getwindowpid"], timeout=3)
+        if proc.returncode != 0 or not proc.stdout.strip().isdigit() or int(proc.stdout.strip()) == os.getpid():
+            return None  # nothing focused, or Jarvis itself
+        try:
+            import psutil
+            return psutil.Process(int(proc.stdout.strip())).name()
+        except Exception:
+            return None
+
+    def now_playing(self) -> Optional[Dict[str, str]]:
+        proc = self._run(["playerctl", "metadata", "--format", "{{playerName}}|{{status}}|{{title}}|{{artist}}"], timeout=3)
+        parts = (proc.stdout or "").strip().split("|")
+        if proc.returncode != 0 or len(parts) != 4:
+            return None
+        return {"player": parts[0], "state": parts[1].lower(), "title": parts[2], "artist": parts[3]}
+
+    def clipboard(self) -> Optional[str]:
+        for cmd in (["wl-paste", "--no-newline"], ["xclip", "-o", "-selection", "clipboard"]):
+            proc = self._run(cmd, timeout=3)
+            if proc.returncode == 0:
+                return proc.stdout
+        return None
 
     def media_players(self) -> List[MediaPlayer]:
         try:

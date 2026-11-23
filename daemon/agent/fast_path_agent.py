@@ -34,9 +34,10 @@ def _required_args() -> Dict[str, List[str]]:
 
 class FastPathCreatorAgent:
     def __init__(self, fast_path_manager: Optional[FastPathManager] = None,
-                 required_args: Optional[Dict[str, List[str]]] = None):
+                 required_args: Optional[Dict[str, List[str]]] = None, registry: Optional[Any] = None):
         self.fast_path_mgr = fast_path_manager or FastPathManager()
         self._required_args = required_args
+        self.registry = registry  # the live registry: newly approved skills become learnable right away
         try:
             self.fast_path_mgr.prune_unlaunchable_app_rules()
         except Exception as err:
@@ -44,9 +45,15 @@ class FastPathCreatorAgent:
 
     @property
     def required_args(self) -> Dict[str, List[str]]:
+        if self.registry is not None:
+            return {t.id: list(t.parameters.get("required", [])) for t in self.registry.list_tools()}
         if self._required_args is None:
             self._required_args = _required_args()
         return self._required_args
+
+    def _helper_status(self):
+        runtime = getattr(self.fast_path_mgr, "runtime", None)
+        return runtime.helper_status if runtime is not None else None
 
     def update_fast_paths(
         self,
@@ -63,6 +70,8 @@ class FastPathCreatorAgent:
             app_exists=_app_exists,
             handled_elsewhere=self.fast_path_mgr.handled_by_builtin,
             rejected=self.fast_path_mgr.rejected,
+            authored=getattr(self.fast_path_mgr, "authored", []),
+            helper_status=self._helper_status(),
         )
         if self.fast_path_mgr.set_mined_rules(rules):
             counts = {s: sum(1 for r in rules if r["status"] == s and r["kind"] == "pattern") for s in ("active", "shadow")}

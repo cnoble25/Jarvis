@@ -50,6 +50,7 @@ class TranscriptLogger:
             
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.retention_days = retention_days
+        self.last_record: Optional[Dict[str, Any]] = None  # the newest turn (context rules' "last_action")
         # Extra fields for the next logged turn (e.g. the transcription alternatives), set by the daemon.
         self._next_turn_meta: Dict[str, Any] = {}
         self._write_lock = threading.RLock()
@@ -168,6 +169,7 @@ class TranscriptLogger:
         elif self._next_turn_meta:
             record.update(self.pop_next_turn_meta())
 
+        self.last_record = record
         log_path = self.get_todays_log_file()
         new_day = not log_path.exists()
         try:

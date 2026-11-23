@@ -29,9 +29,8 @@ WORK_DIR = Path.home() / ".local" / "share" / "jarvis" / "claude-code"
 PERMISSION_SERVER = Path(__file__).with_name("claude_permission_mcp.py")
 TASK_TIMEOUT_SECONDS = 20 * 60
 TASK_RULES = """
-You are working on a task handed over by Jarvis, the user's voice assistant on their Linux desktop
-(KDE Plasma on Bazzite, an immutable Fedora: prefer Flatpak, Homebrew or user-level installs over
-system package changes). The user is not watching a terminal: work through the task on your own,
+You are working on a task handed over by Jarvis, the user's voice assistant on {computer}.
+The user is not watching a terminal: work through the task on your own,
 make reasonable choices instead of asking questions, and keep changes inside their home folder
 unless the task says otherwise. Steps that change things wait for the user's OK, so don't retry a
 step they turned down. End with one or two plain sentences saying what you did (or what stopped
@@ -44,7 +43,21 @@ mishearings. Look where people keep things: the home folder (Desktop, Documents,
 Pictures), the recently used folders listed below if any, /tmp, and drives under /run/media and
 /mnt. `find / -xdev` skips /tmp and other separate filesystems, so search those explicitly. When
 several things match, prefer the most recently modified. If nothing matches, say in one sentence
-where you looked and name the closest matches you saw, so the user can tell you which one."""
+where you looked and name the closest matches you saw, so the user can tell you which one.
+
+When the user wants Jarvis to learn or be able to do something again ("learn how to...", "make a
+command that...", "from now on, when I say..."), or the task is one they will clearly repeat, also
+save it as a skill with the mcp__jarvis__save_skill tool: a small self-contained script that takes
+its arguments as JSON on stdin, prints one sentence to be read aloud as its last line, and exits
+non-zero with the reason on stderr when it fails. Prefer Python's standard library (bash is fine
+for a few commands); don't hardcode values the user will want to vary, make them arguments. Run it
+once to check it works before saving. Tell the user it needs their approval in the Jarvis dashboard
+(Commands page) before Jarvis can use it."""
+
+
+def task_rules() -> str:
+    from daemon.os_interface import get_os
+    return TASK_RULES.format(computer=get_os().claude_code_context)
 
 
 # Spoken requests that name a file or folder get the recently used folders as hints.
@@ -130,7 +143,8 @@ class ClaudeCodeSession:
                  on_note: Optional[Callable[[str], None]] = None,
                  tools: Optional[Callable[[], list]] = None,
                  call_tool: Optional[Callable[[str, Dict[str, Any]], Dict[str, Any]]] = None,
-                 resume: Optional[str] = None):
+                 resume: Optional[str] = None, rules: Optional[str] = None,
+                 timeout: int = TASK_TIMEOUT_SECONDS):
         self.prompt = prompt
         self.model = model
         self.decide = decide
@@ -138,6 +152,8 @@ class ClaudeCodeSession:
         self.on_note = on_note
         self.cancel_event = cancel_event
         self.resume = resume  # continue an earlier session (a follow-up remark)
+        self.rules = rules  # its system prompt addition; None: the usual task briefing
+        self.timeout = timeout
         self.session_id: Optional[str] = None
         self.tools = tools or (lambda: [])
         self.call_tool = call_tool
@@ -229,7 +245,7 @@ class ClaudeCodeSession:
                "--output-format", "stream-json", "--verbose",
                "--mcp-config", str(mcp_config), "--strict-mcp-config",
                "--permission-prompt-tool", "mcp__jarvis__approve",
-               "--append-system-prompt", TASK_RULES]
+               "--append-system-prompt", self.rules or task_rules()]
         if self.resume:
             cmd += ["--resume", self.resume]
         env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
@@ -264,15 +280,15 @@ class ClaudeCodeSession:
                     "session_id": self.session_id,
                     "seconds": round(time.monotonic() - started, 1)}
         reason = final.get("result") or "; ".join(final.get("errors") or []) or "".join(stderr_tail).strip()
-        if time.monotonic() - started >= TASK_TIMEOUT_SECONDS:
-            reason = f"it ran past {TASK_TIMEOUT_SECONDS // 60} minutes"
+        if time.monotonic() - started >= self.timeout:
+            reason = f"it ran past {max(1, self.timeout // 60)} minutes"
         return {"ok": False, "session_id": self.session_id,
                 "text": f"Claude Code couldn't finish: {str(reason)[:300] or 'unknown error'}"}
 
     def _watch(self, started: float):
         """Stop the run when the task is cancelled or takes too long."""
         while self._proc and self._proc.poll() is None:
-            if self.cancel_event.is_set() or time.monotonic() - started > TASK_TIMEOUT_SECONDS:
+            if self.cancel_event.is_set() or time.monotonic() - started > self.timeout:
                 for sig in (signal.SIGTERM, signal.SIGKILL):
                     try:
                         os.killpg(self._proc.pid, sig)

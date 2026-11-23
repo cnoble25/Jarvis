@@ -209,7 +209,7 @@ async function withBusy(button, busyLabel, task) {
 const pageLoaders = {
   "overview-page": () => { loadTranscripts(); loadSettings(); },
   "conversations-page": () => { loadTranscripts(); },
-  "commands-page": () => { loadTools(); },
+  "commands-page": () => { loadTools(); loadSkills(); },
   "macros-page": () => { loadMacros(); },
   "knows-page": () => { loadMemoryProfile(); loadFastPathRules(); },
   "settings-page": () => { loadSettings(); },
@@ -1188,6 +1188,105 @@ function renderTools() {
   ])));
 }
 
+/* ---------- Skills Jarvis wrote ---------- */
+
+const SKILL_STATUS = {
+  pending: { class: "tag risk-medium", text: "Needs your review" },
+  changed: { class: "tag risk-medium", text: "Changed: review again" },
+  approved: { class: "tag tag-learned", text: "Approved" },
+};
+
+async function loadSkills() {
+  const res = await ipc("get_skills");
+  if (!res.success) {
+    renderListError("#skills-list", res.error, loadSkills);
+    return;
+  }
+  state.skills = res.skills || [];
+  renderSkills();
+}
+
+function skillArguments(skill) {
+  const props = Object.entries(skill.parameters?.properties || {});
+  if (!props.length) return "No arguments.";
+  return props.map(([key, spec]) => `${key}${spec.description ? `: ${spec.description}` : ""}`).join(" · ");
+}
+
+function renderSkills() {
+  const list = $("#skills-list");
+  if (!list) return;
+  // Waiting for review first: that's what needs the user.
+  const skills = (state.skills || [])
+    .filter((s) => !state.pendingDeletes.has(`skill:${s.id}`))
+    .sort((a, b) => Number(a.status === "approved") - Number(b.status === "approved"));
+  const waiting = skills.filter((s) => s.status !== "approved").length;
+  setText("#skill-count", waiting ? `${waiting} to review` : String(skills.length || ""));
+  if (skills.length === 0) {
+    list.replaceChildren(el("p", { class: "empty-state", text: "No skills yet. Ask Jarvis to learn something it can't do." }));
+    return;
+  }
+  list.replaceChildren(...skills.map((skill) => {
+    const status = SKILL_STATUS[skill.status] || SKILL_STATUS.pending;
+    const lang = skill.language === "bash" ? "Bash" : "Python";
+    const helper = skill.kind === "helper";
+    const row = el("article", { class: "rule skill" }, [
+      el("div", { class: "rule-main" }, [
+        el("div", { class: "rule-title" }, [
+          el("strong", { text: skill.name }),
+          el("span", status),
+          helper
+            ? el("span", { class: "tag", title: "Looks something up for a learned shortcut. It should only read, never change anything.", text: "Context helper" })
+            : el("span", { class: `tag risk-${(skill.risk_level || "MEDIUM").toLowerCase()}`, text: `${RISK_LABELS[skill.risk_level] || skill.risk_level} risk` }),
+        ]),
+        el("p", { class: "tool-desc", text: skill.description }),
+        skill.source_request ? el("p", { class: "tool-examples" }, ["Made when you asked: “", skill.source_request, "”"]) : null,
+        el("p", { class: "tool-examples", text: `Arguments: ${skillArguments(skill)}` }),
+        skill.risk_level === "HIGH" && !helper ? el("p", { class: "tool-examples", text: "High risk: Jarvis asks before every run." }) : null,
+        helper ? el("p", { class: "tool-examples", text: "Learned shortcuts that need this wait until you approve it." }) : null,
+        el("details", { class: "disclosure skill-code" }, [
+          el("summary", { text: `Read the code (${lang}, ${skill.code.split("\n").length} lines)` }),
+          el("pre", { class: "tool-command" }, [el("code", { text: skill.code })]),
+        ]),
+      ]),
+      el("div", { class: "skill-actions" }, [
+        skill.status === "approved" ? null : el("button", {
+          type: "button",
+          class: "btn btn-primary btn-small",
+          text: "Approve",
+          "aria-label": `Approve the skill ${skill.name}`,
+          onclick: (e) => withBusy(e.currentTarget, "Approving…", async () => {
+            const res = await ipc("approve_skill", { skill_id: skill.id, kind: skill.kind });
+            if (!res.success) {
+              renderListError("#skills-list", res.error, loadSkills);
+              return;
+            }
+            await loadSkills();
+            loadTools();
+          }),
+        }),
+        el("button", {
+          type: "button",
+          class: "btn btn-quiet btn-small",
+          text: "Delete",
+          "aria-label": `Delete the skill ${skill.name}`,
+          onclick: () => deleteWithUndo({
+            key: `skill:${skill.id}`,
+            label: `“${skill.name}”`,
+            hideNode: () => { row.hidden = true; },
+            restore: () => { row.hidden = false; },
+            commit: async () => {
+              const res = await ipc("delete_skill", { skill_id: skill.id, kind: skill.kind });
+              if (res.success) { loadSkills(); loadTools(); }
+              return res.success ? res : { success: false, error: res.error || "That skill couldn't be deleted." };
+            },
+          }),
+        }),
+      ]),
+    ]);
+    return row;
+  }));
+}
+
 /* Parse `User: "Take a screenshot" -> Args: {"x": 1} | User: "..."` into examples. */
 function parseExamples(raw, fallback) {
   const examples = [];
@@ -1470,8 +1569,9 @@ function ruleTag(rule) {
   if (rule.is_system) return { class: "tag", text: "Built in" };
   const seen = rule.support ? ` Matched what the model did ${rule.support} time${rule.support === 1 ? "" : "s"}.` : "";
   if (rule.kind === "noise") return { class: "tag", text: "Ignored", title: `Background speech: heard faintly, never a request.${seen}` };
-  if (rule.status === "shadow") return { class: "tag", text: "Watching", title: `Not used yet: Jarvis still asks the model and checks this rule against it.${seen}` };
-  return { class: "tag tag-learned", text: "Learned", title: `Answers without asking the model.${seen}` };
+  const by = rule.author === "claude_code" ? ` Written by Claude Code from “${rule.examples?.[0] || rule.triggers?.[0]}”.` : "";
+  if (rule.status === "shadow") return { class: "tag", text: "Watching", title: `Not used yet: Jarvis still asks the model and checks this rule against it.${seen}${by}` };
+  return { class: "tag tag-learned", text: "Learned", title: `Answers without asking the model.${seen}${by}` };
 }
 
 /* What the shortcut actually does, resolving macro scripts to their macro names. */
@@ -1934,6 +2034,7 @@ window.jarvisEvent = (name, payload = {}) => {
     loadTranscripts();
   }
   if (name === "idle" || name === "turn_logged" || name === "status_changed") loadStatus();
+  if (name === "skills_changed" && activePageId() === "commands-page") { loadSkills(); loadTools(); }
 };
 
 /* ---------- Boot ---------- */

@@ -182,7 +182,9 @@ class FastPathManager:
                active ones skip the model, shadow ones are only checked against it, noise ones ignore
                low-confidence background speech
       legacy   shortcuts from before pattern mining, matched against the whole request
-      rejected ids of mined rules the user deleted, so mining never brings them back
+      authored rules Claude Code wrote in the background (pattern_learner.py); verified by mining
+      rejected ids of learned rules the user deleted, so they never come back
+      graded   the background grader's verdicts by request, so the same words aren't graded twice
     """
 
     def __init__(self, rules_path: Optional[Path] = None, persist: bool = True):
@@ -191,6 +193,9 @@ class FastPathManager:
         self.learned_rules: List[Dict[str, Any]] = []  # legacy
         self.mined_rules: List[Dict[str, Any]] = []
         self.rejected: List[str] = []
+        self.authored: List[Dict[str, Any]] = []
+        self.graded: Dict[str, Dict[str, Any]] = {}
+        self.runtime: Any = None  # ContextRuntime for context rules (set by the app); None: they never match
         self._lock = threading.Lock()
         self.load_learned_rules()
 
@@ -212,6 +217,8 @@ class FastPathManager:
         self.learned_rules = [r for r in legacy if r not in unsafe]
         self.mined_rules = [r for r in data.get("mined", []) if isinstance(r, dict)]
         self.rejected = list(data.get("rejected", []))
+        self.authored = [r for r in data.get("authored", []) if isinstance(r, dict)]
+        self.graded = dict(data.get("graded", {}))
         if unsafe:
             self.save_learned_rules()
         return self.learned_rules
@@ -242,13 +249,21 @@ class FastPathManager:
                 tmp = self.rules_path.with_suffix(".tmp")
                 with open(tmp, "w", encoding="utf-8") as f:
                     json.dump({"version": 2, "legacy": self.learned_rules, "mined": self.mined_rules,
-                               "rejected": self.rejected}, f, indent=2)
+                               "authored": self.authored, "rejected": self.rejected,
+                               "graded": self.graded}, f, indent=2)
                 os.replace(tmp, self.rules_path)
         except Exception as e:
             print(f"[FastPathManager Error] Failed saving rules: {e}", flush=True)
 
     def set_mined_rules(self, rules: List[Dict[str, Any]]) -> bool:
         """Replace the mined rules (the miner recomputes all of them each time). True if anything changed."""
+        # Rules corrected twice are retired for good, so they aren't written again.
+        for r in [r for r in rules if r.get("status") == "dropped"]:
+            print(f"[FastPathManager] Dropped learned rule {r['triggers']}: you corrected it twice.", flush=True)
+            self.authored = [a for a in self.authored if a.get("id") != r["id"]]
+            if r["id"] not in self.rejected:
+                self.rejected.append(r["id"])
+        rules = [r for r in rules if r.get("status") != "dropped"]
         summary = lambda rs: [(r.get("id"), r.get("status"), r.get("support"), r.get("conflicts")) for r in rs]
         if summary(rules) == summary(self.mined_rules):
             return False
@@ -296,8 +311,28 @@ class FastPathManager:
             self.save_learned_rules()
         return new_rule
 
+    def add_authored(self, spec: Dict[str, Any]) -> Dict[str, Any]:
+        """Keep a rule Claude Code wrote (replacing one with the same id); mining verifies it."""
+        self.authored = [r for r in self.authored if r.get("id") != spec["id"]] + [spec]
+        self.save_learned_rules()
+        return spec
+
+    def record_grade(self, words: str, verdict: Dict[str, Any], keep: int = 500):
+        """Remember the grader's verdict for these words (oldest forgotten past keep)."""
+        self.graded[words] = verdict
+        if len(self.graded) > keep:
+            for old in list(self.graded)[:len(self.graded) - keep]:
+                del self.graded[old]
+        self.save_learned_rules()
+
     def delete_rule(self, rule_id: str) -> bool:
-        """Delete a learned rule. A mined one is remembered as rejected so it isn't learned again."""
+        """Delete a learned rule. A mined or authored one is remembered as rejected so it isn't learned again."""
+        if any(r.get("id") == rule_id for r in self.authored):
+            self.authored = [r for r in self.authored if r.get("id") != rule_id]
+            self.mined_rules = [r for r in self.mined_rules if r.get("id") != rule_id]
+            self.rejected.append(rule_id)
+            self.save_learned_rules()
+            return True
         if any(r.get("id") == rule_id for r in self.mined_rules):
             self.mined_rules = [r for r in self.mined_rules if r.get("id") != rule_id]
             self.rejected.append(rule_id)
@@ -326,7 +361,7 @@ class FastPathManager:
             def app_exists(name: str) -> bool:
                 from daemon.tools.app_scanner import get_app_scanner
                 return get_app_scanner().find_app(name) is not None
-        return match_rules(self.mined_rules, user_query, app_exists, heard_confidence)
+        return match_rules(self.mined_rules, user_query, app_exists, heard_confidence, runtime=self.runtime)
 
     def handled_by_builtin(self, user_query: str) -> bool:
         """A built-in shortcut already answers this request (so there's nothing to learn from it)."""

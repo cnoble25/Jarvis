@@ -92,6 +92,8 @@ class AgentOrchestrator:
         self.routes: List[tuple] = []
         # Called with the route label when a request is routed, so the HUD can say who's answering.
         self.route_listener: Optional[Callable[[str], None]] = None
+        # Called after Claude Code saves a skill (new or changed), so the dashboard can show it for review.
+        self.skill_listener: Optional[Callable[[Dict[str, Any]], None]] = None
 
         # Set by the app to run slow requests as background tasks; None keeps everything inline.
         self.task_board: Optional[TaskBoard] = None
@@ -200,6 +202,7 @@ class AgentOrchestrator:
             "   - SINGLE-TOOL MULTI-ACTION EFFICIENCY: `media_play_pause` accepts an ARRAY of action objects! For multi-intent media requests (such as \"Pause Spotify, play YouTube\"), execute ALL media actions in a single array `[{\"action\": \"pause\", \"player\": \"spotify\"}, {\"action\": \"play\", \"player\": \"youtube\"}]` in Step 1 with \"status\": \"complete\". Do NOT split single-tool media queries across multiple ReAct steps!\n"
             "   - MULTI-TOOL QUERIES (DIFFERENT TOOLS): ONLY set \"status\": \"continue\" across ReAct steps if a query requires TWO DIFFERENT tools (e.g. `close_app` for Steam AND `media_play_pause` for Spotify) that cannot be combined into a single tool call.\n"
             "   - For multi-step jobs (installing or setting something up, organizing or editing files, coding, research across several pages), use 'claude_code_task' with the whole task described in plain words: Claude Code works through it on its own. Use 'execute_terminal_command' only for a single, simple command.\n"
+            "   - NEW ABILITIES: when the user asks Jarvis to learn to do something it has no tool for (\"learn how to...\", \"make a command that...\", \"from now on when I say X, do Y\"), use 'claude_code_task' and ask it to build and save a reusable skill for it. Skills the user approved appear in <available_tools> like any other tool.\n"
             "   - For file system operations (creating directories with mkdir, writing text to files, reading files, process checks), use \"tool\": \"execute_terminal_command\" with \"args\": {\"command\": \"...\"}.\n"
             "   - CRITICAL: To launch desktop apps, ALWAYS set \"tool\": \"app_launcher\" and pass app name in args.\n"
             "   - CRITICAL: To close, exit, or terminate running desktop apps, ALWAYS set \"tool\": \"close_app\" and pass app_name in args (e.g. {\"app_name\": \"steam\"}).\n"
@@ -359,6 +362,10 @@ class AgentOrchestrator:
             meta["served_by"] = {"kind": "fast_path", "rule_id": fast_match.get("rule_id")}
         else:
             learned = self._match_learned(user_query, meta)
+            if learned and "context" in learned and not self._replayable(learned["tool"]):
+                learned = None  # a context rule's resolver picked a tool that is never replayed
+            if learned and learned.get("context") is not None:
+                meta["context"] = learned["context"]  # what the rule's resolver looked up
             if learned and learned["mode"] == "ignore":
                 return self._ignore_noise(user_query, learned, session_id, meta)
             if learned and learned["mode"] == "active":
@@ -515,7 +522,8 @@ class AgentOrchestrator:
                     else "No answer from the user, so this step didn't run."}
 
         def jarvis_tools() -> List[Dict[str, Any]]:
-            out = []
+            from daemon.tools.skills import SAVE_SKILL_TOOL
+            out = [dict(SAVE_SKILL_TOOL)]
             for tool_id, manifest in sorted(self.registry._tools.items()):
                 if tool_id in CLAUDE_CODE_SKIPS or manifest is None:
                     continue
@@ -524,6 +532,8 @@ class AgentOrchestrator:
             return out
 
         def call_tool(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+            if name == "save_skill":
+                return self._save_skill(args, task_text)
             if name not in self.registry._tools or name in CLAUDE_CODE_SKIPS:
                 return {"text": f"Unknown Jarvis tool '{name}'.", "is_error": True}
             run_args = {**args, "_raw_user_query": task_text}
@@ -777,6 +787,29 @@ class AgentOrchestrator:
         task.settled.set()
         update("task_finished")
         return last_result
+
+    def _save_skill(self, args: Dict[str, Any], task_text: str) -> Dict[str, Any]:
+        """Claude Code's save_skill: store the skill unapproved; the user approves it in the dashboard."""
+        from daemon.tools.skills import SkillError
+        store = self.registry.skills
+        taken = [t for t in self.registry._tools if not self.registry.is_skill(t)]
+        try:
+            skill = store.save(args, taken=taken, source_request=task_text.split("\n\n")[0])
+        except SkillError as err:
+            return {"text": f"Not saved: {err}", "is_error": True}
+        self.registry.reload_tools()  # a changed skill stops being usable until it's approved again
+        print(f"[AgentOrchestrator] Claude Code saved skill '{skill['id']}' ({skill['risk_level']}); waiting for approval.", flush=True)
+        if self.skill_listener:
+            try:
+                self.skill_listener(skill)
+            except Exception as err:
+                print(f"[AgentOrchestrator Warning] Skill listener failed: {err}", flush=True)
+        return {"text": f"Saved skill '{skill['id']}'. It can't run until the user approves it in the Jarvis "
+                        "dashboard (Commands page); tell them so.", "is_error": False}
+
+    def _replayable(self, tool: str) -> bool:
+        from daemon.agent.pattern_miner import NEVER_LEARN
+        return tool in self.registry._tools and tool not in NEVER_LEARN
 
     def _match_learned(self, user_query: str, meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """A learned rule for this request (see FastPathManager.match_learned), or None."""
