@@ -23,7 +23,8 @@ MODELS = ["haiku", "sonnet", "opus"]
 WORK_DIR = Path.home() / ".local" / "share" / "jarvis" / "claude-code"
 TIMEOUT_SECONDS = 60
 MAX_SPOKEN_CHARS = 220
-_FALLBACK_BINARIES = ["/home/linuxbrew/.linuxbrew/bin/claude", str(Path.home() / ".local/bin/claude"), "/usr/local/bin/claude"]
+_FALLBACK_BINARIES = ["/home/linuxbrew/.linuxbrew/bin/claude", str(Path.home() / ".local/bin/claude"),
+                      "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
 
 # Appended to Jarvis's system prompt: the reply is spoken and shown in the small HUD pill.
 VOICE_RULES = """

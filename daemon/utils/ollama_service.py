@@ -20,6 +20,8 @@ DEFAULT_URL = "http://localhost:11434"
 _FALLBACK_BINARIES = [
     "/home/linuxbrew/.linuxbrew/bin/ollama",
     str(Path.home() / ".linuxbrew/bin/ollama"),
+    "/opt/homebrew/bin/ollama",  # Homebrew on Apple Silicon Macs
+    "/Applications/Ollama.app/Contents/Resources/ollama",  # the Ollama Mac app
     "/usr/local/bin/ollama",
     "/usr/bin/ollama",
 ]

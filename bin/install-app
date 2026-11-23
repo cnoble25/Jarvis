@@ -2,12 +2,13 @@
 # Install Jarvis as an app for this user (no root needed):
 #   - `jarvis` on the PATH (~/.local/bin)
 #   - an app-menu entry with the Jarvis icon
-#   - a systemd user service that starts Jarvis quietly at login and restarts it if it crashes
+#   - Linux: a systemd user service that starts Jarvis quietly at login and restarts it if it crashes
+#   - macOS: a launchd LaunchAgent that does the same (no app-menu entry; run `jarvis` instead)
 # It runs from this folder and its .venv: after a `git pull`, restart it to pick up changes
-# (systemctl --user restart jarvis).
+# (Linux: systemctl --user restart jarvis; macOS: launchctl kickstart -k gui/$(id -u)/local.jarvis).
 #
 #   bin/install-app              install and enable start at login
-#   bin/install-app --no-login   install the launcher and menu entry only
+#   bin/install-app --no-login   install the launcher (and menu entry) only
 #   bin/install-app --uninstall  remove all of it (leaves the repo, settings and logs alone)
 set -euo pipefail
 REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
@@ -16,6 +17,63 @@ APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 ICONS="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps"
 UNITS="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 LOGS="${XDG_DATA_HOME:-$HOME/.local/share}/jarvis"
+
+if [ "$(uname -s)" = "Darwin" ]; then
+  LABEL="local.jarvis"
+  AGENT="$HOME/Library/LaunchAgents/$LABEL.plist"
+  DOMAIN="gui/$(id -u)"
+  if [ "${1:-}" = "--uninstall" ]; then
+    launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+    rm -f "$AGENT"
+    [ "$(readlink -f "$BIN/jarvis" 2>/dev/null)" = "$REPO/bin/jarvis" ] && rm -f "$BIN/jarvis"
+    echo "Removed the Jarvis launcher and login agent."
+    exit 0
+  fi
+  [ -x "$REPO/.venv/bin/python" ] || { echo "No .venv in $REPO: create it and install requirements.txt first." >&2; exit 1; }
+  mkdir -p "$BIN" "$LOGS"
+  chmod +x "$REPO/bin/jarvis"
+  ln -sfn "$REPO/bin/jarvis" "$BIN/jarvis"
+  if [ "${1:-}" != "--no-login" ]; then
+    mkdir -p "$(dirname "$AGENT")"
+    # launchd starts agents with a bare PATH: add Homebrew and ~/.local/bin so claude, ollama
+    # and locked-in are found. KeepAlive restarts it after a crash but not after `jarvis --quit`.
+    cat > "$AGENT" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$REPO/.venv/bin/python</string>
+    <string>$REPO/main.py</string>
+    <string>--background</string>
+  </array>
+  <key>WorkingDirectory</key><string>$REPO</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>PYTHONUNBUFFERED</key><string>1</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>5</integer>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>StandardOutPath</key><string>$LOGS/jarvis.log</string>
+  <key>StandardErrorPath</key><string>$LOGS/jarvis.log</string>
+</dict>
+</plist>
+PLIST
+    plutil -lint "$AGENT" >/dev/null
+    launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+    launchctl bootstrap "$DOMAIN" "$AGENT"
+    echo "Jarvis will start at login (quietly: run 'jarvis' to open the dashboard)."
+    echo "Started at login, Jarvis runs as Python itself, so grant Accessibility to $(readlink -f "$REPO/.venv/bin/python")"
+    echo "in System Settings > Privacy & Security for the talk shortcut (and Microphone when asked)."
+  fi
+  echo "Installed: 'jarvis' in $BIN (add it to your PATH if it isn't), logs in $LOGS/jarvis.log."
+  exit 0
+fi
 
 if [ "${1:-}" = "--uninstall" ]; then
   systemctl --user disable --now jarvis.service 2>/dev/null || true

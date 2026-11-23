@@ -12,10 +12,17 @@ cd "$REPO"
 
 running() { "$PY" -m daemon.app_control running; }
 
-if [ $# -eq 0 ] && [ -z "${INVOCATION_ID:-}" ] && ! running \
-   && systemctl --user cat jarvis.service >/dev/null 2>&1; then
-  systemctl --user start jarvis.service
+if [ $# -eq 0 ] && [ -z "${INVOCATION_ID:-}" ] && ! running; then
+  started=""
+  if [ "$(uname -s)" = "Darwin" ]; then
+    launchctl print "gui/$(id -u)/local.jarvis" >/dev/null 2>&1 \
+      && launchctl kickstart "gui/$(id -u)/local.jarvis" && started=1
+  elif systemctl --user cat jarvis.service >/dev/null 2>&1; then
+    systemctl --user start jarvis.service && started=1
+  fi
   # Loading the speech models takes a few seconds; then ask it for the dashboard.
-  for _ in $(seq 120); do running && break; sleep 0.5; done
+  if [ -n "$started" ]; then
+    for _ in $(seq 120); do running && break; sleep 0.5; done
+  fi
 fi
 exec "$PY" "$REPO/main.py" "$@"
