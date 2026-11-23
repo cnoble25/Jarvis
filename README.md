@@ -1,12 +1,12 @@
 # 🎙️ Jarvis Desktop AI Assistant
 
-A high-performance, voice-first Linux desktop assistant featuring real-time speech recognition, Anthropic Claude 3.5 LLM with prompt caching, local neural speech synthesis, system-wide kernel hotkey interception, and a dynamic desktop tool execution engine.
+A high-performance, voice-first desktop assistant for Linux and macOS featuring real-time speech recognition, Anthropic Claude 3.5 LLM with prompt caching, local neural speech synthesis, system-wide kernel hotkey interception, and a dynamic desktop tool execution engine.
 
 ---
 
 ## 🌟 Key Features
 
-* **Instant Voice Activation**: Hold `Super + Space` anywhere on your system to talk to Jarvis. Uses kernel-level `/dev/input/event*` interception for seamless operation across X11, Wayland, GNOME, and KDE.
+* **Instant Voice Activation**: Hold the talk shortcut anywhere on your system to talk to Jarvis (`Super + Space` on Linux, `Option + Space` on macOS; change it in the dashboard). Linux reads the kernel's `/dev/input/event*` devices, so it works across X11, Wayland, GNOME and KDE; macOS uses a Quartz event tap.
 * **Glassmorphic Floating HUD**: Sleek PySide6 / HTML5 floating HUD pill that pops up at the bottom of your screen during voice sessions.
 * **Anthropic Prompt Caching**: Utilizes Anthropic Claude 3.5 with 5-minute ephemeral prompt caching (`anthropic-beta: prompt-caching-2024-07-31`), reducing system prompt tokens by 90%+ and delivering sub-second response latency.
 * **Privacy-First Local AI Core**:
@@ -30,7 +30,8 @@ Jarvis/
 ├── .env.example               # Environment Variables Template
 ├── daemon/
 │   ├── agent/                 # ReAct Agent Orchestrator & Fast-Path Engine
-│   ├── ipc/                   # Linux Kernel EVDEV Hotkey Interceptor & Unix Socket Server
+│   ├── ipc/                   # Talk-shortcut logic & Unix Socket Server
+│   ├── os_interface/          # Everything OS-specific: linux.py, macos.py, keyboard readers, audio
 │   ├── memory/                # Transcript Logger, S3 Backup Syncer & Memory Profiler
 │   ├── providers/             # LLM (Anthropic), STT (Faster-Whisper), TTS (Kokoro-ONNX)
 │   ├── tools/                 # Execution Engine, Tool Registry & App Scanner
@@ -59,6 +60,15 @@ sudo apt install -y portaudio19-dev libasound2-dev pipewire-audio-client-librari
 ```bash
 sudo pacman -S --needed portaudio alsa-lib pipewire-alsa libnotify wmctrl xdotool
 ```
+
+## 📋 System Prerequisites (macOS)
+
+Nothing beyond Python 3 (e.g. `brew install python`): audio, AppleScript, `afplay`, `screencapture` and `pmset` are built in, and `pip install -r requirements.txt` pulls in the PyObjC bridges Jarvis needs.
+
+The first time Jarvis runs, macOS asks for permissions (System Settings > Privacy & Security), granted to the app Jarvis runs from (your terminal, or Python when it starts at login):
+- **Accessibility** (or at least **Input Monitoring**): the talk shortcut. With Accessibility the shortcut's key doesn't also type into the focused app.
+- **Microphone**: hearing you.
+- **Automation** (Spotify, Music, System Events), **Screen Recording** (screenshots): asked the first time you use them.
 
 ---
 
@@ -126,15 +136,17 @@ bin/install-app
 ```
 This sets Jarvis up for your user, no root needed:
 - **Jarvis** in the app menu (with its icon) and `jarvis` on your PATH. Opening it while Jarvis is running brings the dashboard forward; only one Jarvis runs at a time.
-- A systemd user service that starts Jarvis quietly at login (the dashboard stays closed until you open it) and restarts it if it crashes.
+- Linux: a systemd user service that starts Jarvis quietly at login (the dashboard stays closed until you open it) and restarts it if it crashes.
 - Closing the dashboard only hides it; Jarvis keeps listening. Quit with `jarvis --quit` (or *Quit Jarvis* on the menu entry).
 
-It runs from this folder and its `.venv`, so after a `git pull` run `systemctl --user restart jarvis`. Logs go to `~/.local/share/jarvis/jarvis.log`. `bin/install-app --no-login` skips start at login; `bin/install-app --uninstall` removes it all.
+- macOS: a launchd agent (`~/Library/LaunchAgents/local.jarvis.plist`) that does the same; there's no app-menu entry, so run `jarvis` to open the dashboard. At login Jarvis runs as Python itself, so grant *that* Python Accessibility (the installer prints its path).
+
+It runs from this folder and its `.venv`, so after a `git pull` restart it (`systemctl --user restart jarvis`, or on macOS `launchctl kickstart -k gui/$(id -u)/local.jarvis`). Logs go to `~/.local/share/jarvis/jarvis.log`. `bin/install-app --no-login` skips start at login; `bin/install-app --uninstall` removes it all.
 
 ### Voice Usage
-1. Press and hold **`Super + Space`** anywhere on your desktop.
+1. Press and hold the talk shortcut (**`Super + Space`** on Linux, **`Option + Space`** on macOS) anywhere on your desktop.
 2. Speak your command into your microphone.
-3. Release **`Super + Space`**.
+3. Let go.
 
 ---
 
