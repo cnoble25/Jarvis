@@ -4,13 +4,20 @@ Defines standard provider interface contracts for STT, LLM Orchestrator, and TTS
 """
 
 from abc import ABC, abstractmethod
-import os
 import time
-import wave
-import shutil
-import subprocess
 import numpy as np
 from typing import Dict, Any, List, Optional, Tuple, Union
+
+
+# The system prompt ends with the context that changes (date, focus mode, memory profile), starting
+# at this tag; everything before it is stable request to request, so providers can cache it.
+VOLATILE_CONTEXT_TAG = "<active_context>"
+
+
+def split_system_prompt(system_prompt: str) -> Tuple[str, str]:
+    """(stable prefix to cache, volatile tail). No tag: the whole prompt is the stable part."""
+    i = (system_prompt or "").find(VOLATILE_CONTEXT_TAG)
+    return (system_prompt or "", "") if i < 0 else (system_prompt[:i], system_prompt[i:])
 
 
 class BaseSTTProvider(ABC):
@@ -132,12 +139,8 @@ class BaseLLMProvider(ABC):
 class BaseTTSProvider(ABC):
     """
     Abstract Base Class for TTS Providers.
-    Encapsulates PipeWire/PulseAudio mixing, RAM disk file generation, and sounddevice fallback.
+    Synthesis is the provider's job; playback goes through the OS interface (daemon.os_interface).
     """
-
-    def __init__(self):
-        # Detect native PipeWire/PulseAudio player for concurrent audio mixing
-        self.player_cmd = shutil.which("pw-play") or shutil.which("paplay") or shutil.which("aplay")
 
     def speak(self, text: str, voice: Optional[str] = None, speed: float = 1.0, block: bool = True) -> bool:
         """
@@ -164,47 +167,10 @@ class BaseTTSProvider(ABC):
         if samples is None or len(samples) == 0:
             return False
 
-        # Ensure float32 1D numpy array
-        samples = np.asarray(samples, dtype=np.float32).flatten()
-
-        # Primary route: Native PipeWire/PulseAudio audio player (pw-play / paplay)
-        if self.player_cmd:
-            temp_dir = "/dev/shm" if os.path.exists("/dev/shm") else "/tmp"
-            wav_path = os.path.join(temp_dir, f"jarvis_tts_{os.getpid()}_{os.urandom(4).hex()}.wav")
-            try:
-                int16_samples = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
-                with wave.open(wav_path, 'wb') as wf:
-                    wf.setnchannels(1)
-                    wf.setsampwidth(2)
-                    wf.setframerate(sample_rate)
-                    wf.writeframes(int16_samples.tobytes())
-
-                self.last_synth_seconds = time.perf_counter() - synth_started
-                self.last_playback_started = time.perf_counter()
-                if block:
-                    subprocess.run([self.player_cmd, wav_path], check=False)
-                else:
-                    subprocess.Popen([self.player_cmd, wav_path])
-                return True
-            except Exception as err:
-                print(f"[BaseTTSProvider Warning] Native player failed: {err}. Falling back to sounddevice.", flush=True)
-            finally:
-                if block and os.path.exists(wav_path):
-                    try:
-                        os.remove(wav_path)
-                    except OSError:
-                        pass
-
-        # Fallback route: sounddevice with high latency buffer
-        try:
-            import sounddevice as sd
-            sd.play(samples, sample_rate, latency='high')
-            if block:
-                sd.wait()
-            return True
-        except Exception as err:
-            print(f"[BaseTTSProvider Error] sounddevice playback failed: {err}", flush=True)
-            return False
+        from daemon.os_interface import play_samples
+        self.last_synth_seconds = time.perf_counter() - synth_started
+        self.last_playback_started = time.perf_counter()
+        return play_samples(samples, sample_rate, block=block)
 
     @abstractmethod
     def _synthesize_audio(self, text: str, voice: str, speed: float) -> Tuple[np.ndarray, int]:

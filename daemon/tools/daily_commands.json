@@ -11,7 +11,7 @@
     },
     "execution": {
       "type": "command_template",
-      "template": "grim ~/Pictures/Screenshot_$(date +%Y%m%d_%H%M%S).png || import -window root ~/Pictures/Screenshot_$(date +%Y%m%d_%H%M%S).png || spectacle -b -n"
+      "template": "builtin_screenshot"
     },
     "examples": [
       {
@@ -30,7 +30,7 @@
     "id": "media_play_pause",
     "name": "Toggle Media Playback",
     "version": "1.0.0",
-    "description": "Controls audio and video playback (play, pause, stop, toggle) for active MPRIS DBus media players (Spotify, YouTube in Firefox/Chrome, VLC, MPV) with optional player targeting.",
+    "description": "Controls audio and video playback (play, pause, stop, toggle) for active media players (Spotify, YouTube in Firefox/Chrome, VLC, MPV) with optional player targeting.",
     "category": "media",
     "parameters": {
       "type": "object",
@@ -72,7 +72,7 @@
     "id": "volume_control",
     "name": "Adjust Volume",
     "version": "1.0.0",
-    "description": "Increases, decreases, or mutes master system audio volume on Linux.",
+    "description": "Increases, decreases, or mutes the system audio volume.",
     "category": "media",
     "parameters": {
       "type": "object",
@@ -88,7 +88,7 @@
     },
     "execution": {
       "type": "command_template",
-      "template": "wpctl set-volume @DEFAULT_AUDIO_SINK@ {action} || pamixer -t || amixer set Master 5%+"
+      "template": "builtin_volume_control"
     },
     "examples": [
       {
@@ -113,7 +113,7 @@
     },
     "execution": {
       "type": "command_template",
-      "template": "loginctl lock-session || kscreenlocker_greet || xdg-screensaver lock"
+      "template": "builtin_lock_screen"
     },
     "examples": [
       {
@@ -202,7 +202,7 @@
     },
     "execution": {
       "type": "command_template",
-      "template": "free -h && uptime"
+      "template": "builtin_system_status"
     },
     "examples": [
       {
@@ -225,7 +225,7 @@
     },
     "execution": {
       "type": "command_template",
-      "template": "ptyxis & || alacritty & || konsole & || gnome-terminal &"
+      "template": "builtin_open_terminal"
     },
     "examples": [
       {

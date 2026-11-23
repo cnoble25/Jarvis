@@ -165,7 +165,9 @@ def test_close_kills_only_exact_name(monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.setattr(os, "kill", lambda pid, sig: killed.append(pid))
+    from daemon.os_interface.linux import LinuxOS
     eng = ExecutionEngine.__new__(ExecutionEngine)
+    eng._system = LinuxOS()
     res = eng._close_app("Visual Studio Code", {"kind": "process", "name": "code"})
     assert ["pgrep", "-x", "code"] in calls
     assert killed == [4242], "never Jarvis itself, never a substring match"

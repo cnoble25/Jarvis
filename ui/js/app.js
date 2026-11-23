@@ -374,7 +374,9 @@ function renderStatus(s) {
     ? { label: "Starting up", detail: check.message || "Starting the local model…" }
     : idle && !check.ok
       ? { label: "Can't think", detail: "Fix the model to talk again." }
-      : VOICE_STATES[s.voice_state] || VOICE_STATES.idle;
+      : idle && s.hotkey_problem
+        ? { label: "Shortcut off", detail: s.hotkey_problem }
+        : VOICE_STATES[s.voice_state] || VOICE_STATES.idle;
   document.body.dataset.voiceState = s.voice_state || "idle";
   document.body.classList.toggle("is-blocked", idle && !check.ok && !check.starting);
 
@@ -384,6 +386,13 @@ function renderStatus(s) {
 
   const recorderDisplay = $("#active-keybind-display");
   if (recorderDisplay && !recorder.active) renderKeycaps(recorderDisplay, s.hotkey);
+  // Why the shortcut can't work (macOS permission, a key that can't be held), next to its setting.
+  const keybindHint = $("#keybind-hint");
+  if (keybindHint && !recorder.active && (s.hotkey_problem || keybindHint.dataset.problem)) {
+    keybindHint.textContent = s.hotkey_problem || "Click, then hold the new keys together. Esc cancels.";
+    if (s.hotkey_problem) keybindHint.dataset.problem = "1";
+    else delete keybindHint.dataset.problem;
+  }
 
   setText("#metric-stt-provider", s.stt?.name || "Unknown");
   setText("#metric-tts-provider", s.tts?.name || "Unknown");

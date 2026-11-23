@@ -1,23 +1,18 @@
 """
-Linux Installed Desktop Applications Scanner & Fuzzy Matcher (Sub-Task 2.2)
-Parses system and user .desktop application entry files (/usr/share/applications, Flatpak, snap)
-to build a live manifest of installed apps for accurate voice app launching and STT fuzzy matching.
+Installed apps and spoken-name matching.
+
+Which apps exist, how to start them and how to close them comes from the OS interface (.desktop
+entries on Linux, .app bundles on macOS). Matching what the user said to one of them ("my camera",
+"VS Code", "discrod") is the same everywhere and lives here.
 """
 
-import os
-import re
-import glob
 import difflib
-from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+import json
+import re
+from typing import Any, Dict, List, Optional, Tuple
 
-DESKTOP_DIRS = [
-    "/usr/share/applications",
-    os.path.expanduser("~/.local/share/applications"),
-    "/var/lib/flatpak/exports/share/applications",
-    os.path.expanduser("~/.local/share/flatpak/exports/share/applications"),
-    "/var/lib/snapd/desktop/applications"
-]
+from daemon.os_interface import get_os
+from daemon.os_interface.base import AppEntry, OSInterface
 
 
 # Words that come before an app's name in speech, not part of it ("open up the camera").
@@ -29,130 +24,48 @@ _ALIASES = {"vs code": "code", "vscode": "code", "visual studio": "code", "file 
             "web browser": "firefox", "browser": "firefox"}
 
 
-class AppEntry:
-    def __init__(self, desktop_path: str, name: str, exec_cmd: str, keywords: List[str], desktop_id: str):
-        self.desktop_path = desktop_path
-        self.name = name
-        self.exec_cmd = exec_cmd
-        self.keywords = keywords
-        self.desktop_id = desktop_id
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "desktop_id": self.desktop_id,
-            "name": self.name,
-            "exec": self.exec_cmd,
-            "keywords": self.keywords
-        }
-
-
 class AppScanner:
-    def __init__(self):
+    def __init__(self, system: Optional[OSInterface] = None):
+        self._system = system
         self.apps: Dict[str, AppEntry] = {}
         self.scan_installed_apps()
 
+    @property
+    def system(self) -> OSInterface:
+        return getattr(self, "_system", None) or get_os()
+
     def scan_installed_apps(self):
-        """
-        Scans all desktop entry locations and parses metadata.
-        """
+        """Index this OS's installed apps by lowercase name and id (the first app with a name wins)."""
         self.apps.clear()
-
-        for d in DESKTOP_DIRS:
-            if not os.path.exists(d):
-                continue
-            for filepath in glob.glob(os.path.join(d, "*.desktop")):
-                entry = self._parse_desktop_file(filepath)
-                if entry and entry.name:
-                    # Key by normalized lowercase name and desktop_id
-                    key = entry.name.lower()
-                    if key not in self.apps:
-                        self.apps[key] = entry
-                    self.apps[entry.desktop_id.lower()] = entry
-
-    def _parse_desktop_file(self, filepath: str) -> Optional[AppEntry]:
-        """
-        Parses a .desktop file to extract Name, Exec, Keywords, and NoDisplay.
-        """
-        name = ""
-        exec_cmd = ""
-        keywords = []
-        no_display = False
-        desktop_id = Path(filepath).stem
-
-        try:
-            with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-                in_main_section = False
-                for line in f:
-                    line = line.strip()
-                    if line == "[Desktop Entry]":
-                        in_main_section = True
-                        continue
-                    elif line.startswith("[") and line.endswith("]"):
-                        in_main_section = False
-
-                    if not in_main_section:
-                        continue
-
-                    if line.startswith("NoDisplay=true") or line.startswith("Hidden=true"):
-                        no_display = True
-                    elif line.startswith("Name=") and not name:
-                        name = line.split("=", 1)[1].strip()
-                    elif line.startswith("Exec=") and not exec_cmd:
-                        raw_exec = line.split("=", 1)[1].strip()
-                        # Clean field codes (%u, %f, %U, etc.)
-                        exec_cmd = re.sub(r"%[a-zA-Z]", "", raw_exec).strip()
-                    elif line.startswith("Keywords="):
-                        raw_kw = line.split("=", 1)[1].strip()
-                        keywords = [k.strip().lower() for k in raw_kw.split(";") if k.strip()]
-
-            if no_display or not name or not exec_cmd:
-                return None
-
-            return AppEntry(
-                desktop_path=filepath,
-                name=name,
-                exec_cmd=exec_cmd,
-                keywords=keywords,
-                desktop_id=desktop_id
-            )
-        except Exception:
-            return None
+        for entry in self.system.installed_apps():
+            self.apps.setdefault(entry.name.lower(), entry)
+            if entry.app_id:
+                self.apps[entry.app_id.lower()] = entry
 
     def get_installed_apps_manifest(self) -> List[Dict[str, Any]]:
         """
         Returns list of unique installed desktop applications.
         """
-        unique = {}
-        for app in self.apps.values():
-            unique[app.desktop_id] = app.to_dict()
+        unique = {id(app): app.to_dict() for app in self.apps.values()}
         return list(unique.values())
 
-    def get_prompt_app_summary(self) -> str:
+    def get_prompt_app_summary(self, limit: int = 60) -> str:
         """
-        Returns a compact formatted text manifest of installed apps for the LLM system prompt.
+        Installed apps for the LLM system prompt: names only (app_launcher matches them exactly),
+        since this is sent with every request.
         """
-        manifest = self.get_installed_apps_manifest()
-        lines = []
         # Filter out background system entries
         ignore_keywords = ("helper", "portal", "mime", "driver", "qt5", "qt6", "setup", "im-config", "ibus", "xdg")
-        filtered = [
-            a for a in manifest
-            if not any(k in a["name"].lower() or k in a["desktop_id"].lower() for k in ignore_keywords)
-        ]
-        # Sort and cap at top 25 user apps
-        for a in sorted(filtered, key=lambda x: x["name"])[:25]:
-            name = a["name"]
-            desktop_id = a["desktop_id"]
-            lines.append(f'- **{name}**: Use tool "app_launcher" with args {{"app_name": "{desktop_id}"}}')
-        return "\n".join(lines)
+        names = sorted({a["name"] for a in self.get_installed_apps_manifest()
+                        if not any(k in a["name"].lower() or k in a["app_id"].lower() for k in ignore_keywords)},
+                       key=str.lower)
+        shown = ", ".join(names[:limit])
+        more = f" (and {len(names) - limit} more)" if len(names) > limit else ""
+        return f'Open one with app_launcher, args {{"app_name": "<name as written>"}}: {shown}{more}'
 
-    def _build_launch_cmd(self, desktop_id: str, exec_cmd: str) -> str:
-        clean_exec = exec_cmd.strip()
-        if desktop_id and clean_exec:
-            return f"nohup bash -c \"gtk-launch '{desktop_id}' 2>/dev/null || {clean_exec}\" >/dev/null 2>&1 &"
-        elif desktop_id:
-            return f"nohup gtk-launch '{desktop_id}' >/dev/null 2>&1 &"
-        return f"nohup {clean_exec} >/dev/null 2>&1 &"
+    def launch_command_for(self, name: str) -> str:
+        """Start something by name that isn't an installed app entry (a macro step like "firefox")."""
+        return self.system.launch_command(AppEntry("", name, name, [], name))
 
     @staticmethod
     def clean_app_query(query: str) -> str:
@@ -186,12 +99,12 @@ class AppScanner:
         if q in self.apps:
             return self.apps[q]
         for app in apps:
-            if q == app.desktop_id.lower().rsplit(".", 1)[-1] or q.replace(" ", "") == app.name.lower().replace(" ", ""):
+            if (app.app_id and q == app.app_id.lower().rsplit(".", 1)[-1]) or q.replace(" ", "") == app.name.lower().replace(" ", ""):
                 return app
 
         # 2. Binary name
         for app in apps:
-            binary = Path(app.exec_cmd.split()[0]).name.lower() if app.exec_cmd else ""
+            binary = app.binary.lower()
             if binary and binary in (q, q.replace(" ", ""), q.replace(" ", "-")):
                 return app
 
@@ -233,7 +146,7 @@ class AppScanner:
         app = self.find_app(query)
         if not app:
             return "", ""
-        return self._build_launch_cmd(app.desktop_id, app.exec_cmd), app.name
+        return self.system.launch_command(app), app.name
 
     def match_app_launch_intent(self, user_query: str) -> Optional[Tuple[str, str, str]]:
         """
@@ -257,39 +170,14 @@ class AppScanner:
         app = self.find_app(target_q)
         if not app:
             return None
-        return self._build_launch_cmd(app.desktop_id, app.exec_cmd), app.name, target_q
+        return self.system.launch_command(app), app.name, target_q
 
     def close_plan(self, query: str) -> Tuple[Optional[AppEntry], Dict[str, str]]:
-        """
-        How to close the app the query names, targeting only that app's own processes:
-          {"kind": "flatpak", "id": "com.spotify.Client"}   flatpak kill, by app id
-          {"kind": "steam"}                                  Steam's own shutdown
-          {"kind": "steam_game", "appid": "3017860"}         processes Steam tagged with the game
-          {"kind": "process", "name": "konsole"}             exact process name, never a substring
-        Returns (None, {}) when no installed app matches.
-        """
+        """The app the query names and how the OS should close only it; (None, {}) if none matches."""
         app = self.find_app(query)
         if not app:
             return None, {}
-        exec_cmd = app.exec_cmd or ""
-        game = re.search(r"steam://rungameid/(\d+)", exec_cmd)
-        if game:
-            return app, {"kind": "steam_game", "appid": game.group(1)}
-        flatpak_id = ""
-        m = re.search(r"\bflatpak\s+run\s+(.*)", exec_cmd)
-        if m:
-            flatpak_id = next((t for t in m.group(1).split() if not t.startswith("-") and "." in t), "")
-        elif "/flatpak/exports/" in app.desktop_path or re.fullmatch(r"[A-Za-z][\w-]*(\.[\w-]+){2,}", app.desktop_id):
-            flatpak_id = app.desktop_id
-        binary = Path(exec_cmd.split()[0]).name if exec_cmd else ""
-        if app.desktop_id.lower() == "steam" or binary in ("steam", "bazzite-steam"):
-            return app, {"kind": "steam"}
-        if flatpak_id:
-            # Native fallback for wrappers that only look like Flatpak ids (checked against running apps).
-            # A real Flatpak launch has no native process to fall back to; a native app whose desktop id
-            # merely looks like one (org.kde.konsole) falls back to its exact binary name.
-            return app, {"kind": "flatpak", "id": flatpak_id, "name": "" if binary == "flatpak" else binary}
-        return app, {"kind": "process", "name": binary}
+        return app, self.system.close_plan(app)
 
 
 # Global singleton instance for fast reuse

@@ -68,9 +68,15 @@ def test_synthesis_requests_pcm_with_the_chosen_model():
 
 
 def test_speak_plays_through_the_player_without_sound():
+    from daemon.os_interface import set_os
+    from daemon.os_interface.linux import LinuxOS
     p = provider_with_client()
-    p.player_cmd = "/usr/bin/pw-play"
-    with patch("daemon.providers.base.subprocess.run") as run:
-        assert p.speak("") is False
-        assert p.speak("Testing playback", block=True) is True
+    set_os(LinuxOS())
+    try:
+        with patch("daemon.os_interface.linux.shutil.which", return_value="/usr/bin/pw-play"), \
+                patch("daemon.os_interface.linux.subprocess.run") as run:
+            assert p.speak("") is False
+            assert p.speak("Testing playback", block=True) is True
+    finally:
+        set_os(None)
     assert run.call_args[0][0][0] == "/usr/bin/pw-play"

@@ -9,8 +9,6 @@ Wires together all subsystems:
 """
 
 import os
-import shutil
-import subprocess
 import sys
 import time
 import threading
@@ -24,11 +22,10 @@ from PySide6.QtGui import QIcon, QShortcut, QKeySequence
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
 
-# Force Qt to use X11/Xwayland platform plugin (xcb) on Linux.
-# On Wayland native mode (wayland-egl), Wayland compositors (KWin/Mutter) strictly forbid
-# applications from specifying absolute screen coordinates (move/setGeometry), forcing windows to center.
-# Setting QT_QPA_PLATFORM=xcb gives Qt full authority over absolute screen positioning (x=2300, y=1350).
-os.environ["QT_QPA_PLATFORM"] = "xcb"
+# Qt settings this OS needs before the QApplication exists (Linux: the xcb platform, for absolute
+# overlay positions; macOS: raise() must not activate the whole app). See daemon/os_interface.
+from daemon.os_interface import get_os
+os.environ.update(get_os().qt_environment())
 # The GPU draws the pages (tested 2026-11-17 on NVIDIA + KWin/XWayland: the see-through overlays
 # keep their transparent corners). Software rendering made every animation stutter.
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
@@ -61,22 +58,47 @@ HUD_HTML_PATH = BASE_DIR / "ui" / "hud.html"
 PANEL_HTML_PATH = BASE_DIR / "ui" / "panel.html"
 ICON_PATH = BASE_DIR / "ui" / "icons" / "jarvis.svg"
 
-# Always-on-top overlays (the pill, the task panel): XWayland override-redirect windows, which
-# KWin stacks above every managed window, fullscreen ones included, and which never take focus
-# or show up in the taskbar.
+# Always-on-top overlays (the pill, the task panel): they never take focus or show up in the
+# taskbar. On Linux they are XWayland override-redirect windows, which KWin stacks above every
+# managed window, fullscreen ones included; on macOS, floating-level panels.
 OVERLAY_FLAGS = (Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint |
                  Qt.WindowDoesNotAcceptFocus | Qt.BypassWindowManagerHint | Qt.Tool)
-KEEP_ON_TOP_MS = 1500  # re-raise while visible, in case another override-redirect popup lands on top
+# Re-raise while visible, in case another override-redirect popup lands on top. Only where the OS
+# needs it: on macOS raising activates the app and drags the dashboard back to the front.
+KEEP_ON_TOP_MS = 1500 if get_os().overlays_need_reraise else 0
+
+
+def setup_overlay(window: QMainWindow) -> QTimer:
+    """Common overlay window setup; returns its keep-on-top timer (which never starts if not needed)."""
+    window.setWindowFlags(OVERLAY_FLAGS)
+    window.setAttribute(Qt.WA_TranslucentBackground, True)
+    window.setAttribute(Qt.WA_ShowWithoutActivating, True)
+    # macOS hides tool windows while another app is active: the pill must show over any app.
+    window.setAttribute(Qt.WA_MacAlwaysShowToolWindow, True)
+    timer = QTimer(window)
+    if KEEP_ON_TOP_MS:
+        timer.setInterval(KEEP_ON_TOP_MS)
+        timer.timeout.connect(window.raise_)
+    return timer
+
+
+def present_overlay(window: QMainWindow):
+    """After show(): let the OS set the overlay up (macOS: visible even while the dashboard is minimized)."""
+    get_os().prepare_overlay_window(int(window.winId()))
+
+
+def start_keep_on_top(timer: QTimer):
+    if KEEP_ON_TOP_MS:
+        timer.start()
 
 
 def overlay_screen():
-    """The primary screen's rect and the room its Plasma panels take, for placing overlays."""
-    from daemon.overlay_layout import plasma_panel_insets
+    """The primary screen's rect and the room the OS's bars take (panels, menu bar, Dock)."""
     screen = QApplication.primaryScreen()
-    geo = screen.geometry()
-    return (geo.x(), geo.y(), geo.width(), geo.height()), plasma_panel_insets(0)
+    geo, avail = screen.geometry(), screen.availableGeometry()
+    rect = (geo.x(), geo.y(), geo.width(), geo.height())
+    return rect, get_os().overlay_insets(rect, (avail.x(), avail.y(), avail.width(), avail.height()))
 
-DEFAULT_HOTKEY = "Super + Space"
 VALID_RISK_LEVELS = ("SAFE", "MEDIUM", "HIGH")
 
 # Fixed replies the LLM providers return when they cannot answer, mapped to a fix the user can act on.
@@ -172,15 +194,18 @@ class DashboardWindow(QMainWindow):
             self.bridge.show_dashboard_signal.connect(self.bring_forward)
 
     def bring_forward(self):
+        get_os().show_in_dock(True)  # before showing, so it opens as a normal app and comes forward
         self.showNormal()
         self.raise_()
         self.activateWindow()
+        get_os().bring_app_forward()
 
     def closeEvent(self, event):
         # Closing the window only hides it: Jarvis keeps listening for the shortcut. Quit with
         # `jarvis --quit` (or stop the login service).
         event.ignore()
         self.hide()
+        get_os().show_in_dock(False)  # only the overlays are left: run in the background
 
     def push_event(self, name: str, payload_json: str):
         """Hand a live voice-loop event to the page (see window.jarvisEvent in ui/js/app.js)."""
@@ -215,9 +240,7 @@ class EdgePanelWindow(QMainWindow):
     def __init__(self, app_instance: 'JarvisApplication', bridge: TriggerBridge):
         super().__init__()
         self.setWindowTitle("Jarvis Task Panel")
-        self.setWindowFlags(OVERLAY_FLAGS)
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self._keep_on_top = setup_overlay(self)
         self.resize(360, 120)
 
         self.web_view = QWebEngineView(self)
@@ -228,10 +251,6 @@ class EdgePanelWindow(QMainWindow):
         self.channel.registerObject("jarvisBridge", self.api)
         self.web_view.page().setWebChannel(self.channel)
         self.web_view.load(QUrl.fromLocalFile(str(PANEL_HTML_PATH)))
-
-        self._keep_on_top = QTimer(self)
-        self._keep_on_top.setInterval(KEEP_ON_TOP_MS)
-        self._keep_on_top.timeout.connect(self.raise_)
         bridge.dashboard_event_signal.connect(self.push_event)
 
     def push_event(self, name: str, payload_json: str):
@@ -252,8 +271,10 @@ class EdgePanelWindow(QMainWindow):
         self.setGeometry(x, y, width, height)
         if not self.isVisible():
             self.show()
-            self._keep_on_top.start()
-        self.raise_()
+            present_overlay(self)
+            start_keep_on_top(self._keep_on_top)
+        if KEEP_ON_TOP_MS:
+            self.raise_()
 
 
 # The pill window: room around the blob for its edge to swell when you speak.
@@ -265,9 +286,7 @@ class HUDWindow(QMainWindow):
         super().__init__()
         self.bridge = bridge
         self.setWindowTitle("Jarvis HUD Pill")
-        self.setWindowFlags(OVERLAY_FLAGS)
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self._keep_on_top = setup_overlay(self)
         self.setAttribute(Qt.WA_AlwaysStackOnTop, True)
         self.setFixedSize(PILL_W, PILL_H)
 
@@ -277,10 +296,6 @@ class HUDWindow(QMainWindow):
 
         hud_url = QUrl.fromLocalFile(str(HUD_HTML_PATH))
         self.web_view.load(hud_url)
-
-        self._keep_on_top = QTimer(self)
-        self._keep_on_top.setInterval(KEEP_ON_TOP_MS)
-        self._keep_on_top.timeout.connect(self.raise_)
 
         if self.bridge:
             self.bridge.show_hud_signal.connect(self.show_hud)
@@ -298,7 +313,8 @@ class HUDWindow(QMainWindow):
 
     def _ensure_on_top(self):
         self.position_at_bottom_center()
-        self.raise_()
+        if KEEP_ON_TOP_MS:
+            self.raise_()
 
     def show_hud(self):
         """
@@ -308,9 +324,11 @@ class HUDWindow(QMainWindow):
         self.position_at_bottom_center()
         self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
         self.show()
-        self.raise_()
+        present_overlay(self)
+        if KEEP_ON_TOP_MS:
+            self.raise_()
         QTimer.singleShot(20, self._ensure_on_top)
-        self._keep_on_top.start()
+        start_keep_on_top(self._keep_on_top)
 
     def hide_hud(self):
         """
@@ -389,9 +407,9 @@ class JarvisApplication:
         self.ipc_server = IPCServer(command_handler=self.handle_ipc_command)
         self.ipc_server.start()
 
-        # 4. Global Hotkey Interceptor (Super + Space)
+        # 4. Global talk shortcut (read system-wide by this OS's keyboard reader)
         self.hotkey_interceptor = HotkeyInterceptor(
-            shortcut_str=self.provider_factory.settings.get("hotkey") or DEFAULT_HOTKEY,
+            shortcut_str=self.provider_factory.settings.get("hotkey") or None,  # None: this OS's default
             on_press_callback=self.on_hotkey_press,
             on_release_callback=self.on_hotkey_release,
             release_buffer_ms=200
@@ -425,6 +443,10 @@ class JarvisApplication:
                 return {"success": False, "error": "No keys were recorded. Click the shortcut box and hold the keys you want."}
             if len(new_shortcut.split(" + ")) > 4:
                 return {"success": False, "error": "Use four keys or fewer for the talk shortcut."}
+            unholdable = [why for key, why in get_os().unholdable_keys().items()
+                          if key in {p.lower() for p in new_shortcut.split(" + ")}]
+            if unholdable:
+                return {"success": False, "error": f"{unholdable[0]} Try {get_os().default_hotkey}."}
             self.hotkey_interceptor.update_shortcut(new_shortcut)
             self.provider_factory.settings["hotkey"] = new_shortcut
             self.provider_factory.save_settings()
@@ -610,6 +632,7 @@ class JarvisApplication:
             # Dashboard fields
             "voice_state": self.voice_state,
             "hotkey": self.hotkey_interceptor.shortcut_str,
+            "hotkey_problem": self.hotkey_interceptor.problem,
             "ipc": {
                 "running": bool(server_thread and server_thread.is_alive()),
                 "socket_path": self.ipc_server.socket_path,
@@ -755,10 +778,8 @@ class JarvisApplication:
         title = title or ("Done" if task.get("status") == "done" else "Couldn't finish")
         query = " ".join(str(task.get("title", "")).split())
         query = query if len(query) <= 60 else query[:59] + "…"
-        notify = shutil.which("notify-send")
-        if notify:
-            subprocess.Popen([notify, "-a", "Jarvis", "-i", "audio-input-microphone", f"{title}: {query}", text],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        from daemon.os_interface import get_os
+        get_os().notify(f"{title}: {query}", text)
         deadline = time.time() + 120
         while self.voice_state != "idle" and time.time() < deadline:
             time.sleep(0.2)
@@ -1030,6 +1051,7 @@ class JarvisApplication:
         """
         Launches PySide6 QApplication loop.
         """
+        os.environ.update(get_os().qt_environment(background=self.start_hidden))
         self.qt_app = QApplication(sys.argv)
         self.qt_app.setApplicationName("Jarvis")
         self.qt_app.setDesktopFileName("jarvis")  # matches jarvis.desktop: app-menu icon and name
@@ -1039,6 +1061,7 @@ class JarvisApplication:
         self.bridge.quit_signal.connect(self.qt_app.quit)
 
         self.dashboard_win = DashboardWindow(app_instance=self, bridge=self.bridge)
+        get_os().show_in_dock(not self.start_hidden)
         if not self.start_hidden:
             self.dashboard_win.show()
 
@@ -1051,7 +1074,7 @@ class JarvisApplication:
             self.panel_win = EdgePanelWindow(app_instance=self, bridge=self.bridge)
 
         print("[Jarvis Main] Native Desktop GUI & Wispr Flow HUD ready.")
-        print("[Jarvis Main] Press & hold [Super + Space] anywhere on your computer to talk to Jarvis!")
+        print(f"[Jarvis Main] Press & hold [{self.hotkey_interceptor.shortcut_str}] anywhere on your computer to talk to Jarvis!")
 
         sys.exit(self.qt_app.exec())
 

@@ -2,11 +2,13 @@
 
 import pytest
 
+from daemon.os_interface.linux import LinuxOS
 from daemon.tools.app_scanner import AppEntry, AppScanner
 
 
 def scanner_with(*apps):
     s = AppScanner.__new__(AppScanner)
+    s._system = LinuxOS()
     s.apps = {}
     for name, desktop_id, exec_cmd, keywords in apps:
         e = AppEntry(f"/x/{desktop_id}.desktop", name, exec_cmd, keywords, desktop_id)

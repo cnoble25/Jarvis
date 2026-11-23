@@ -6,8 +6,9 @@ Latency notes (a voice turn waits on this call):
   requests, so a turn doesn't pay a fresh TCP + TLS handshake.
 - prepare() is called when the talk shortcut is pressed. If the pooled connection may have
   expired, it opens one with a free Models API request while the user is still speaking.
-- The system prompt is cached (cache_control); it only includes today's date, so the prefix is
-  stable all day.
+- The system prompt's stable part (instructions, tools, apps: ~5.8K tokens) is cached. The date,
+  focus mode and memory profile come after it in their own uncached block, so the profile being
+  rewritten every few turns doesn't throw the cache away. Haiku 4.5 only caches 4096+ tokens.
 """
 
 import os
@@ -15,10 +16,13 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-from daemon.providers.base import BaseLLMProvider
+from daemon.providers.base import BaseLLMProvider, split_system_prompt
 from daemon.providers.factory import ProviderRegistry
 
 MODEL_MAPPING = {
+    "haiku-5.5": "claude-haiku-5-5",
+    "claude-haiku-5-5": "claude-haiku-5-5",
+
     "haiku-4.5": "claude-haiku-4-5-20251001",
     "claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",
 
@@ -36,7 +40,14 @@ MODEL_MAPPING = {
     "sonnet-4.6": "claude-sonnet-4-6",
     "claude-sonnet-4-6": "claude-sonnet-4-6"
 }
-FALLBACK_MODELS = ["claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929", "claude-sonnet-4-6"]
+FALLBACK_MODELS = ["claude-haiku-5-5", "claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929", "claude-sonnet-4-6"]
+# Per-model request settings. Claude Haiku 5.5 thinks by default and its thinking counts toward
+# max_tokens, so it gets room for that, and low effort: a quick spoken reply, little or no thinking
+# on simple requests. Older models reject `effort` and answer in well under 300 tokens.
+REQUEST_SETTINGS = {
+    "claude-haiku-5-5": {"max_tokens": 1024, "output_config": {"effort": "low"}},
+}
+DEFAULT_REQUEST_SETTINGS = {"max_tokens": 300}
 KEEPALIVE_SECONDS = 120.0  # keep the idle connection this long (the SDK default is 5s)
 PREPARE_IF_IDLE = 4.0      # re-open the connection on key press if it's been idle at least this long
 
@@ -56,6 +67,20 @@ def _client(api_key: str):
             client = anthropic.Anthropic(api_key=api_key, http_client=http, timeout=30.0, max_retries=1)
             _clients[api_key] = client
         return client
+
+
+def build_system_blocks(system_prompt: str) -> List[Dict[str, Any]]:
+    """
+    Cache the stable prefix; send the volatile tail (date, focus mode, profile) after the breakpoint.
+    Empty parts are left out: the API rejects an empty block (the memory profiler sends no prompt).
+    """
+    stable, volatile = split_system_prompt(system_prompt)
+    blocks = []
+    if stable.strip():
+        blocks.append({"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}})
+    if volatile.strip():
+        blocks.append({"type": "text", "text": volatile})
+    return blocks
 
 
 @ProviderRegistry.register_llm("anthropic_llm")
@@ -105,7 +130,7 @@ class AnthropicLLMProvider(BaseLLMProvider):
             messages.append({"role": role, "content": past.get("content", "")})
         messages.append({"role": "user", "content": user_query})
 
-        system_blocks = [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]
+        system_blocks = build_system_blocks(system_prompt)
         target_model = MODEL_MAPPING.get(self.model_name, self.model_name)
         candidates = [target_model] + [m for m in FALLBACK_MODELS if m != target_model]
 
@@ -115,9 +140,9 @@ class AnthropicLLMProvider(BaseLLMProvider):
             try:
                 response = client.messages.create(
                     model=model,
-                    max_tokens=300,
-                    system=system_blocks,
                     messages=messages,
+                    **REQUEST_SETTINGS.get(model, DEFAULT_REQUEST_SETTINGS),
+                    **({"system": system_blocks} if system_blocks else {}),
                 )
             except anthropic.NotFoundError as err:
                 print(f"[AnthropicLLM Error] Model '{model}' not found: {err.message}", flush=True)
@@ -146,7 +171,14 @@ class AnthropicLLMProvider(BaseLLMProvider):
             if os.environ.get("JARVIS_DEBUG_LLM"):
                 print(f"[AnthropicLLM Debug] {self.last_timing}", flush=True)
 
+            if response.stop_reason == "refusal":  # Claude Haiku 5.5's safety classifiers can decline
+                print(f"[AnthropicLLM] {model} declined the request ({getattr(response.stop_details, 'category', None)}).", flush=True)
+                return {"tool": "none", "args": {}, "spoken_summary": "Sorry, I can't help with that one."}
+            # Read text blocks by type: a response can begin with (empty) thinking blocks.
             text = "".join(b.text for b in response.content if b.type == "text").strip()
+            if not text and response.stop_reason == "max_tokens":
+                print(f"[AnthropicLLM] {model} used its whole token limit before answering.", flush=True)
+                return {"tool": "none", "args": {}, "spoken_summary": "That took me too long to work out. Try asking more simply."}
             from daemon.utils.json_utils import extract_json_payload
             return extract_json_payload(text)
 

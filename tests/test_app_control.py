@@ -3,10 +3,23 @@ The control client a second launch uses to find the running Jarvis (bin/jarvis, 
 Runs against a real IPCServer on a temporary socket; nothing touches the running Jarvis.
 """
 
+import shutil
+import tempfile
 import time
+from pathlib import Path
+
+import pytest
 
 from daemon import app_control
 from daemon.ipc.socket_server import IPCServer
+
+
+@pytest.fixture
+def sock_dir():
+    """A short folder: socket paths are limited to ~104 characters (macOS's pytest tmp_path is longer)."""
+    d = Path(tempfile.mkdtemp(prefix="jv", dir="/tmp"))
+    yield d
+    shutil.rmtree(d, ignore_errors=True)
 
 
 def start_server(path, calls):
@@ -27,8 +40,8 @@ def test_not_running_without_a_socket(tmp_path):
     assert app_control.is_running(str(tmp_path / "none.sock")) is False
 
 
-def test_ping_and_actions_reach_the_running_jarvis(tmp_path):
-    path = tmp_path / "jarvis.sock"
+def test_ping_and_actions_reach_the_running_jarvis(sock_dir):
+    path = sock_dir / "jarvis.sock"
     calls = []
     server = start_server(path, calls)
     try:
@@ -40,8 +53,8 @@ def test_ping_and_actions_reach_the_running_jarvis(tmp_path):
         server.stop()
 
 
-def test_broadcast_events_are_skipped_while_waiting_for_the_answer(tmp_path):
-    path = tmp_path / "jarvis.sock"
+def test_broadcast_events_are_skipped_while_waiting_for_the_answer(sock_dir):
+    path = sock_dir / "jarvis.sock"
     server = None
 
     def handler(action, params):

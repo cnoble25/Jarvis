@@ -5,7 +5,9 @@ and executes custom JSON tool templates safely.
 """
 
 import os
+import shlex
 import shutil
+import sys
 from pathlib import Path
 import signal
 import subprocess
@@ -16,6 +18,18 @@ import urllib.request
 import urllib.parse
 from typing import Dict, Any, Optional
 from .registry import ToolRegistry, ToolManifest
+from daemon.os_interface import MEDIA_ACTIONS, OSInterface, get_os
+
+
+
+def find_locked_in() -> Optional[str]:
+    """
+    The locked-in focus CLI: $JARVIS_LOCKED_IN, then PATH, then next to Jarvis's own Python (it is
+    usually pip-installed into the same venv, which isn't on PATH when Jarvis starts at login).
+    """
+    candidates = [os.environ.get("JARVIS_LOCKED_IN", ""), shutil.which("locked-in") or "",
+                  str(Path(sys.executable).parent / "locked-in")]
+    return next((c for c in candidates if c and os.access(c, os.X_OK)), None)
 
 
 class ExecutionEngine:
@@ -290,141 +304,91 @@ class ExecutionEngine:
 
     # ---- Volume and screenshots ------------------------------------------------------------------
 
-    @staticmethod
-    def _current_volume() -> Optional[str]:
-        out = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], capture_output=True, text=True).stdout
-        m = re.search(r"Volume:\s*([\d.]+)(\s*\[MUTED\])?", out or "")
-        if not m:
-            return None
-        return "muted" if m.group(2) else f"{round(float(m.group(1)) * 100)}%"
+    @property
+    def system(self) -> OSInterface:
+        """This computer's OS interface (tests set _system to pin one)."""
+        return getattr(self, "_system", None) or get_os()
 
     def _volume(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        """up / down / mute / unmute / '40%' / '5%+' / 'toggle', on the default output via wpctl."""
+        """up / down / mute / unmute / '40%' / '5%+' / 'toggle', on the default output."""
         action = str(args.get("action", "")).lower().strip()
         raw = str(args.get("_raw_user_query", "")).lower()
-        sink = "@DEFAULT_AUDIO_SINK@"
+        system = self.system
         step = 5
+        mute_wanted = "unset"
         m = re.search(r"(\d{1,3})\s*(%|percent)", action) or re.search(r"(\d{1,3})\s*(%|percent)", raw)
-        if action in ("mute", "toggle") or (not action and "mute" in raw and "unmute" not in raw):
-            cmd, word = ["wpctl", "set-mute", sink, "1" if action == "mute" else "toggle"], "Muted" if action == "mute" else "Toggled mute"
-        elif action in ("unmute",) or "unmute" in raw:
-            cmd, word = ["wpctl", "set-mute", sink, "0"], "Unmuted"
+        # The user's own words beat a generic "toggle" (the built-in "mute" shortcut sends toggle, and
+        # toggling would unmute when sound is already muted).
+        said_unmute = "unmute" in raw
+        said_mute = bool(re.search(r"\bmute\b", raw)) and not said_unmute
+        if action == "unmute" or (action in ("", "toggle") and said_unmute):
+            res, word = system.set_mute(False), "Unmuted"
+        elif action == "mute" or (action in ("", "toggle") and said_mute):
+            mute_wanted = True
+            res, word = system.set_mute(True), ""
+        elif action == "toggle":
+            mute_wanted = None
+            res, word = system.set_mute(None), ""
         elif action.endswith(("%+", "%-")) and action[:-2].isdigit():
-            cmd, word = ["wpctl", "set-volume", "-l", "1.0", sink, action], "Volume up" if action.endswith("+") else "Volume down"
+            up = action.endswith("+")
+            res, word = system.change_volume(int(action[:-2]) * (1 if up else -1)), "Volume up" if up else "Volume down"
         elif action in ("up", "louder", "increase", "raise") or (not m and re.search(r"\b(up|louder|raise|increase)\b", raw)):
-            cmd, word = ["wpctl", "set-volume", "-l", "1.0", sink, f"{step}%+"], "Volume up"
+            res, word = system.change_volume(step), "Volume up"
         elif action in ("down", "quieter", "decrease", "lower") or (not m and re.search(r"\b(down|quieter|lower|decrease)\b", raw)):
-            cmd, word = ["wpctl", "set-volume", sink, f"{step}%-"], "Volume down"
+            res, word = system.change_volume(-step), "Volume down"
         elif m:
-            level = max(0, min(100, int(m.group(1))))
-            cmd, word = ["wpctl", "set-volume", sink, f"{level}%"], "Volume set"
+            res, word = system.set_volume(int(m.group(1))), "Volume set"
         else:
             return {"success": False, "exit_code": 1, "stdout": "", "stderr": f"Unknown volume action '{action}'.",
                     "spoken_confirmation": "Should I turn it up, down, or mute it?"}
-        proc = subprocess.run(cmd, capture_output=True, text=True)
-        if proc.returncode != 0:
-            return {"success": False, "exit_code": proc.returncode, "stdout": "", "stderr": proc.stderr.strip() or "wpctl failed",
+        if not res.ok:
+            return {"success": False, "exit_code": 1, "stdout": "", "stderr": res.error,
                     "spoken_confirmation": "I couldn't change the volume."}
-        if cmd[1] == "set-mute" and cmd[-1] == "0":
-            subprocess.run(["wpctl", "set-mute", sink, "0"], capture_output=True)
-        level = self._current_volume()
-        spoken = f"{word}, now {level}." if level and level != "muted" and word.startswith("Volume") else f"{word}."
-        return {"success": True, "exit_code": 0, "stdout": " ".join(cmd), "stderr": "", "spoken_confirmation": spoken}
+        state = system.get_volume()
+        if mute_wanted is True:
+            word = "Muted"
+        elif mute_wanted is None:  # toggled: say which way it went
+            word = ("Muted" if state.muted else "Unmuted") if state else "Toggled mute"
+        level = state.level if state and not state.muted else None
+        spoken = f"{word}, now {level}%." if level is not None and word.startswith("Volume") else f"{word}."
+        return {"success": True, "exit_code": 0, "stdout": res.detail, "stderr": "", "spoken_confirmation": spoken}
 
     def _screenshot(self) -> Dict[str, Any]:
-        """Use the desktop's own screenshot tool, and only report success if the file was saved."""
+        """Use the OS's own screenshot tool, and only report success if the file was saved."""
         from datetime import datetime
         folder = Path.home() / "Pictures" / "Screenshots"
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"Screenshot_{datetime.now():%Y-%m-%d_%H-%M-%S}.png"
-        desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
-        wayland = os.environ.get("XDG_SESSION_TYPE", "") == "wayland" or "WAYLAND_DISPLAY" in os.environ
-        candidates = []
-        if shutil.which("spectacle") and ("kde" in desktop or not wayland):
-            candidates.append(["spectacle", "-b", "-n", "-f", "-o", str(path)])
-        if shutil.which("gnome-screenshot") and "gnome" in desktop:
-            candidates.append(["gnome-screenshot", "-f", str(path)])
-        if shutil.which("grim") and wayland and not any(d in desktop for d in ("kde", "gnome")):
-            candidates.append(["grim", str(path)])
-        if shutil.which("import") and not wayland:
-            candidates.append(["import", "-window", "root", str(path)])
-        if not candidates:
-            return {"success": False, "exit_code": 127, "stdout": "", "stderr": "No screenshot tool for this desktop.",
-                    "spoken_confirmation": "I couldn't find a screenshot tool for this desktop."}
-        errors = []
-        for cmd in candidates:
-            try:
-                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-            except subprocess.TimeoutExpired:
-                errors.append(f"{cmd[0]} timed out")
-                continue
-            if path.exists() and path.stat().st_size > 0:
-                return {"success": True, "exit_code": 0, "stdout": str(path), "stderr": "",
-                        "spoken_confirmation": "Took a screenshot. It's in Pictures, Screenshots."}
-            errors.append(f"{cmd[0]}: {proc.stderr.strip()[:120] or 'no file written'}")
-        return {"success": False, "exit_code": 1, "stdout": "", "stderr": "; ".join(errors),
-                "spoken_confirmation": "The screenshot didn't save."}
+        res = self.system.screenshot(str(path))
+        if res.ok:
+            return {"success": True, "exit_code": 0, "stdout": str(path), "stderr": "",
+                    "spoken_confirmation": "Took a screenshot. It's in Pictures, Screenshots."}
+        spoken = ("I couldn't find a screenshot tool for this desktop." if res.error.startswith("No screenshot tool")
+                  else "The screenshot didn't save.")
+        return {"success": False, "exit_code": 1, "stdout": "", "stderr": res.error, "spoken_confirmation": spoken}
+
+    def _power(self, action: str, args: Dict[str, Any], spoken: str) -> Dict[str, Any]:
+        cmd = self.system.power_command(action)
+        if not cmd:
+            return {"success": False, "exit_code": 1, "stdout": "", "stderr": f"{action} isn't supported on {self.system.name} yet.",
+                    "spoken_confirmation": f"I can't do that on {self.system.name} yet."}
+        if self.dry_run or args.get("_dry_run"):
+            print(f"[ExecutionEngine.system_power_control DRY RUN] Simulated command: {cmd}", flush=True)
+            return {"success": True, "exit_code": 0, "stdout": "", "stderr": "", "spoken_confirmation": spoken, "cmd": cmd}
+        res = self.execute_bash(cmd)
+        res["spoken_confirmation"] = spoken
+        return res
 
     # ---- Closing apps: only the app's own processes ------------------------------------------
 
-    @staticmethod
-    def _own_pids() -> set:
-        """Jarvis itself and its parent shell: never killed by a close request."""
-        return {os.getpid(), os.getppid()}
-
-    @staticmethod
-    def _pids_by_name(name: str) -> list:
-        if not name:
-            return []
-        out = subprocess.run(["pgrep", "-x", name[:15]], capture_output=True, text=True).stdout
-        return [int(p) for p in out.split() if p.isdigit()]
-
-    @staticmethod
-    def _pids_for_steam_game(appid: str) -> list:
-        pids = []
-        for env_path in Path("/proc").glob("[0-9]*/environ"):
-            try:
-                env = env_path.read_bytes().split(b"\0")
-            except OSError:
-                continue
-            if f"SteamGameId={appid}".encode() in env or f"SteamAppId={appid}".encode() in env:
-                pids.append(int(env_path.parent.name))
-        return pids
-
     def _close_app(self, display: str, plan: Dict[str, str]) -> Dict[str, Any]:
-        def result(ok: bool, spoken: str, detail: str = "") -> Dict[str, Any]:
-            return {"success": ok, "exit_code": 0 if ok else 1, "stdout": detail if ok else "",
-                    "stderr": "" if ok else detail, "spoken_confirmation": spoken}
-
-        not_running = result(True, f"{display} isn't running.", "Not running.")
-        kind = plan.get("kind")
-        if kind == "flatpak":
-            running = subprocess.run(["flatpak", "ps", "--columns=application"], capture_output=True, text=True).stdout.split()
-            if plan["id"] in running:
-                proc = subprocess.run(["flatpak", "kill", plan["id"]], capture_output=True, text=True)
-                return result(proc.returncode == 0, f"Closed {display}." if proc.returncode == 0 else f"Couldn't close {display}.",
-                              proc.stderr.strip() or f"flatpak kill {plan['id']}")
-            kind, plan = "process", {"name": plan.get("name", "")}  # a native app with a Flatpak-style id
-        if kind == "steam":
-            if not self._pids_by_name("steam"):
-                return not_running
-            subprocess.Popen(["steam", "-shutdown"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             stdin=subprocess.DEVNULL, start_new_session=True)
-            return result(True, "Closing Steam.", "steam -shutdown")
-        if kind == "steam_game":
-            pids = [p for p in self._pids_for_steam_game(plan["appid"]) if p not in self._own_pids()]
-        else:
-            pids = [p for p in self._pids_by_name(plan.get("name", "")) if p not in self._own_pids()]
-        if not pids:
-            return not_running
-        for pid in pids:
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            except PermissionError:
-                return result(False, f"I'm not allowed to close {display}.", f"Permission denied for PID {pid}.")
-        return result(True, f"Closed {display}.", f"Sent SIGTERM to {len(pids)} process(es).")
+        res = self.system.close_app(plan)
+        spoken = {"closed": f"Closed {display}.", "closing": f"Closing {display}.",
+                  "not_running": f"{display} isn't running."}.get(res.state)
+        if not res.ok:
+            spoken = f"I'm not allowed to close {display}." if res.state == "denied" else f"Couldn't close {display}."
+        return {"success": res.ok, "exit_code": 0 if res.ok else 1, "stdout": res.detail if res.ok else "",
+                "stderr": "" if res.ok else res.error, "spoken_confirmation": spoken or f"Closed {display}."}
 
     def execute_custom_tool(self, tool_id: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -565,8 +529,14 @@ class ExecutionEngine:
             if isinstance(domains, str):
                 domains = [domains]
 
-            # Use absolute path to locked-in binary in venv
-            cmd_parts = ["/home/carson/Documents/Jarvis/.venv/bin/locked-in", action]
+            locked_in = find_locked_in()
+            if not locked_in:
+                return {
+                    "success": False, "exit_code": 127, "stdout": "",
+                    "stderr": "The locked-in CLI isn't installed (looked on PATH, next to Jarvis's Python, and $JARVIS_LOCKED_IN).",
+                    "spoken_confirmation": "Locked-in isn't installed on this computer."
+                }
+            cmd_parts = [locked_in, action]
 
             if action == "create":
                 if name:
@@ -578,7 +548,7 @@ class ExecutionEngine:
                     if d:
                         cmd_parts.extend(["--domain", str(d)])
             elif action in ["delete", "remove_profile"]:
-                cmd_parts = ["/home/carson/Documents/Jarvis/.venv/bin/locked-in", "delete"]
+                cmd_parts = [locked_in, "delete"]
                 if name:
                     cmd_parts.extend(["--name", name])
             elif action == "start":
@@ -594,7 +564,8 @@ class ExecutionEngine:
                 if domain:
                     cmd_parts.extend(["-d", domain])
 
-            cmd = " ".join(cmd_parts)
+            # Quoted: profile names, apps and domains come from speech and can hold spaces or quotes.
+            cmd = shlex.join(cmd_parts)
             res = self.execute_bash(cmd)
 
             if action == "start":
@@ -628,15 +599,24 @@ class ExecutionEngine:
             return self._volume(args)
 
         if tool_id == "open_terminal":
-            terminal = next((t for t in ("konsole", "ptyxis", "gnome-terminal", "kitty", "alacritty", "wezterm",
-                                         "foot", "xfce4-terminal", "xterm") if shutil.which(t)), None)
-            if not terminal:
-                return {"success": False, "exit_code": 1, "stdout": "", "stderr": "No terminal app found.",
+            res = self.system.open_terminal()
+            if not res.ok:
+                return {"success": False, "exit_code": 1, "stdout": "", "stderr": res.error,
                         "spoken_confirmation": "I couldn't find a terminal app to open."}
-            subprocess.Popen([terminal], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             stdin=subprocess.DEVNULL, start_new_session=True)
-            return {"success": True, "exit_code": 0, "stdout": f"Started {terminal}", "stderr": "",
+            return {"success": True, "exit_code": 0, "stdout": res.detail, "stderr": "",
                     "spoken_confirmation": "Opened a terminal."}
+
+        if tool_id == "system_status":
+            cmd = self.system.system_status_command()
+            if not cmd:
+                return {"success": False, "exit_code": 1, "stdout": "", "stderr": f"Not supported on {self.system.name} yet.",
+                        "spoken_confirmation": f"I can't check system status on {self.system.name} yet."}
+            res = self.execute_bash(cmd)
+            res["spoken_confirmation"] = "Here's your system status." if res.get("success") else "I couldn't read the system status."
+            return res
+
+        if tool_id == "lock_screen":
+            return self._power("lock", args, "Locking your computer screen.")
 
         if tool_id == "take_screenshot":
             return self._screenshot()
@@ -682,7 +662,7 @@ class ExecutionEngine:
                     "exit_code": 1,
                     "stdout": "",
                     "stderr": f"No installed app matches '{name}'. If it's a website, open its URL with "
-                              f"execute_terminal_command (xdg-open https://...).",
+                              f"execute_terminal_command ({self.system.open_command} https://...).",
                     "spoken_confirmation": f"I couldn't find an app called {name} on this computer.",
                 }
             print(f"[ExecutionEngine.app_launcher] Matched '{app_query}' -> '{app_display_name}' ({cmd})", flush=True)
@@ -728,25 +708,12 @@ class ExecutionEngine:
                 action = "lock"
 
             if action in ["shutdown", "poweroff", "power_off", "turn_off"]:
-                cmd = "systemctl poweroff || loginctl poweroff || shutdown -h now"
-                spoken = "Shutting down your computer."
-            elif action in ["reboot", "restart"]:
-                cmd = "systemctl reboot || loginctl reboot || shutdown -r now"
-                spoken = "Rebooting your computer."
-            elif action in ["suspend", "sleep"]:
-                cmd = "systemctl suspend || loginctl suspend"
-                spoken = "Putting your computer to sleep."
-            else:
-                cmd = "loginctl lock-session || kscreenlocker_greet || xdg-screensaver lock"
-                spoken = "Locking your computer screen."
-
-            if self.dry_run or args.get("_dry_run"):
-                print(f"[ExecutionEngine.system_power_control DRY RUN] Simulated command: {cmd}", flush=True)
-                return {"success": True, "exit_code": 0, "stdout": "", "stderr": "", "spoken_confirmation": spoken, "cmd": cmd}
-
-            res = self.execute_bash(cmd)
-            res["spoken_confirmation"] = spoken
-            return res
+                return self._power("shutdown", args, "Shutting down your computer.")
+            if action in ["reboot", "restart"]:
+                return self._power("reboot", args, "Rebooting your computer.")
+            if action in ["suspend", "sleep"]:
+                return self._power("suspend", args, "Putting your computer to sleep.")
+            return self._power("lock", args, "Locking your computer screen.")
 
 
         if tool_id == "media_play_pause":
@@ -768,76 +735,43 @@ class ExecutionEngine:
                 elif any(w in raw_query for w in ["video", "youtube", "firefox", "browser"]):
                     player = "youtube"
             
-            mpris_players = []
-            try:
-                out = subprocess.run(["busctl", "--user", "list"], capture_output=True, text=True).stdout
-                for line in out.split("\n"):
-                    if "org.mpris.MediaPlayer2" in line:
-                        parts = line.split()
-                        if parts:
-                            mpris_players.append(parts[0])
-            except Exception:
-                pass
+            system = self.system
+            players = system.media_players()
 
             target_players = []
             if player:
-                browser_keywords = ["firefox", "chrome", "chromium", "brave", "youtube", "zen", "vivaldi", "opera", "edge"]
+                browser_keywords = ["firefox", "chrome", "chromium", "brave", "youtube", "zen", "vivaldi", "opera", "edge", "safari"]
                 kw_targets = browser_keywords if player in ("youtube", "video", "browser", "firefox", "chrome") else [player]
-                for p in mpris_players:
-                    p_lower = p.lower()
-                    if any(t in p_lower for t in kw_targets):
-                        target_players.append(p)
-            
+                target_players = [p for p in players if any(t in p.name for t in kw_targets)]
+
             # Prefer specific active player (e.g. Spotify or Firefox) rather than blasting all players simultaneously
-            if not target_players and mpris_players:
-                spotify_p = [p for p in mpris_players if "spotify" in p.lower()]
-                firefox_p = [p for p in mpris_players if "firefox" in p.lower() or "chrome" in p.lower()]
-                if spotify_p:
-                    target_players = spotify_p
-                elif firefox_p:
-                    target_players = firefox_p
-                else:
-                    target_players = [mpris_players[0]]
+            if not target_players and players:
+                spotify_p = [p for p in players if "spotify" in p.name]
+                browser_p = [p for p in players if "firefox" in p.name or "chrome" in p.name]
+                target_players = spotify_p or browser_p or [players[0]]
 
-            method_map = {
-                "play": "Play",
-                "pause": "Pause",
-                "stop": "Pause",
-                "toggle": "PlayPause",
-                "play-pause": "PlayPause",
-                "next": "Next",
-                "previous": "Previous"
-            }
-            method_name = method_map.get(action, "PlayPause")
+            if action in ("stop",):
+                action = "pause"
+            elif action == "play-pause" or action not in MEDIA_ACTIONS:
+                action = "toggle"
 
-            executed = []
-            for target in target_players:
-                cmd = ["busctl", "--user", "call", target, "/org/mpris/MediaPlayer2", "org.mpris.MediaPlayer2.Player", method_name]
-                r = subprocess.run(cmd, capture_output=True, text=True)
-                if r.returncode == 0:
-                    executed.append(target)
+            executed = [p.id for p in target_players if system.media_command(p, action).ok]
 
             if not executed:
                 # No media player answered (none running, or it rejected the call): say so rather
-                # than claiming it worked. The old xdotool media-key fallback can't reach Wayland apps.
-                reason = "No media player is running." if not mpris_players else f"The player didn't respond to {method_name}."
+                # than claiming it worked.
                 return {
                     "success": False,
                     "stdout": "",
-                    "stderr": reason,
-                    "spoken_confirmation": "Nothing is playing right now." if not mpris_players else "The media player didn't respond.",
+                    "stderr": "No media player is running." if not players else f"The player didn't respond to {action}.",
+                    "spoken_confirmation": system.no_media_players_message() if not players else "The media player didn't respond.",
                 }
-            else:
-                display_p = player.title() if player else "media"
-                action_word = "Paused" if method_name == "Pause" else ("Resumed" if method_name == "Play" else "Toggled")
+            display_p = player.title() if player else "media"
+            spoken = {"next": "Skipped to the next track.", "previous": "Went back a track."}.get(action)
+            if not spoken:
+                action_word = {"pause": "Paused", "play": "Resumed"}.get(action, "Toggled")
                 spoken = f"{action_word} {display_p} playback."
-
-            return {
-                "success": True,
-                "stdout": f"Executed {method_name} on {executed}",
-                "stderr": "",
-                "spoken_confirmation": spoken
-            }
+            return {"success": True, "stdout": f"Sent {action} to {executed}", "stderr": "", "spoken_confirmation": spoken}
 
         if tool_id == "update_memory_profile":
             key = args.get("key", "").strip()

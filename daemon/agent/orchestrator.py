@@ -14,11 +14,12 @@ from daemon.tools.registry import ToolRegistry
 from daemon.tools.execution_engine import ExecutionEngine
 from daemon.memory.transcript_logger import TranscriptLogger
 from daemon.memory.profiler_agent import load_user_profile
-from daemon.providers.base import BaseLLMProvider, BaseTTSProvider
+from daemon.providers.base import VOLATILE_CONTEXT_TAG, BaseLLMProvider, BaseTTSProvider
 from daemon.providers.llm.ollama_llm_provider import OllamaLLMProvider
 from daemon.agent.fast_path_manager import FastPathManager
 from daemon.agent.tasks import BackgroundTask, TaskBoard, describe_step
 from daemon.agent.approval import approval_needed, is_approval, is_refusal
+from daemon.os_interface import get_os
 
 # Background tasks: a request still working after PROMOTE_AFTER seconds, or about to run one of
 # BACKGROUND_TOOLS, gets a quick spoken reply and keeps going in the background.
@@ -170,7 +171,7 @@ class AgentOrchestrator:
             macros = get_macro_manager().list_macros()
             if macros:
                 m_lines = []
-                for m_id, m_info in macros.items():
+                for m_id, m_info in sorted(macros.items()):  # glob order isn't stable: it would break the cache
                     name = m_info.get("name", m_id)
                     steps = m_info.get("steps", [])
                     m_lines.append(f"  - '{m_id}' (Name: \"{name}\"): steps={steps}")
@@ -180,15 +181,10 @@ class AgentOrchestrator:
 
         prompt = (
             "<persona>\n"
-            "You are Jarvis, a helpful, intelligent voice-activated desktop assistant for Linux.\n"
+            f"You are Jarvis, a helpful, intelligent voice-activated desktop assistant for {get_os().name}.\n"
             f"You are currently powered by the AI model: '{active_model}'.\n"
             "You help the user answer questions, hold natural conversations, and execute desktop commands.\n"
             "</persona>\n\n"
-            "<active_context>\n"
-            f"  <current_time>{current_time_str}</current_time>\n"
-            f"  <focus_mode_status>{locked_in_status}</focus_mode_status>\n"
-            f"{profile_xml}"
-            "</active_context>\n\n"
             "<system_instructions>\n"
             "1. **Analyze Intent & Category**:\n"
             "   - **Category A (Inspection & Discovery Tools)**: 'web_search', 'search_files', 'get_current_time', 'system_status'. Use tool and set \"status\": \"continue\". This allows the ReAct engine to read tool search results / stdout before executing terminal commands or answering.\n"
@@ -255,7 +251,15 @@ class AgentOrchestrator:
             '  "status": "continue" | "complete",\n'
             '  "spoken_summary": "Conversational reply or brief action status."\n'
             "}\n"
-            "</response_schema>\n"
+            "</response_schema>\n\n"
+            # Last on purpose: everything above is the same request after request and is cached
+            # (providers cache the prefix); this part changes daily, with focus mode, and whenever
+            # the memory profile is rewritten. Earlier, it would invalidate the whole cache.
+            f"{VOLATILE_CONTEXT_TAG}\n"
+            f"  <current_time>{current_time_str}</current_time>\n"
+            f"  <focus_mode_status>{locked_in_status}</focus_mode_status>\n"
+            f"{profile_xml}"
+            "</active_context>\n"
         )
         return prompt
 

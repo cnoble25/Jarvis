@@ -29,7 +29,9 @@ SAFE_PROGRAMS = {
     "test", "[", "lsblk", "lscpu", "lspci", "lsusb", "nvidia-smi", "sensors", "playerctl", "pactl",
     "notify-send", "spogo", "jq", "diff", "cmp", "md5sum", "sha256sum", "tree", "printenv", "journalctl",
     # Checked further below: only some of their sub-commands are read-only.
-    "find", "git", "flatpak", "wpctl", "systemctl", "rpm", "ollama", "xdg-open", "sed",
+    "find", "git", "flatpak", "wpctl", "systemctl", "rpm", "ollama", "xdg-open", "open", "sed",
+    # macOS read-only
+    "sw_vers", "vm_stat",
 }
 READ_ONLY_SUBCOMMANDS = {
     "git": {"status", "log", "diff", "show", "branch", "remote", "rev-parse"},
@@ -114,7 +116,7 @@ def _segment_is_safe(words: List[str]) -> bool:
         return False
     if prog == "rpm" and not any(a.startswith("-q") for a in args):
         return False
-    if prog == "xdg-open" and not all(re.match(r"https?://", a) for a in args):
+    if prog in ("xdg-open", "open") and not (args and all(re.match(r"https?://", a) for a in args)):
         return False
     return True
 

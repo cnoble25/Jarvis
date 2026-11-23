@@ -5,6 +5,7 @@ import threading
 
 import pytest
 
+from daemon.os_interface.linux import LinuxOS
 from daemon.tools.execution_engine import ExecutionEngine, timer_sentence
 
 
@@ -21,6 +22,7 @@ def engine(monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", lambda cmd, **_k: calls.append(cmd))
     eng = ExecutionEngine.__new__(ExecutionEngine)
     eng._local = threading.local()
+    eng._system = LinuxOS()
     eng.calls = calls
     return eng
 
@@ -29,7 +31,7 @@ def engine(monkeypatch):
     ("up", ["wpctl", "set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", "5%+"], "Volume up, now 45%."),
     ("down", ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"], "Volume down, now 45%."),
     ("mute", ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "1"], "Muted."),
-    ("toggle", ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"], "Toggled mute."),
+    ("toggle", ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"], "Unmuted."),
     ("50%", ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "50%"], "Volume set, now 45%."),
     ("5%+", ["wpctl", "set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", "5%+"], "Volume up, now 45%."),
 ])
@@ -70,3 +72,12 @@ def test_calendar_without_khal_says_so(engine, monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda name: None)
     res = engine.execute_custom_tool("calendar_create_event", {"title": "x", "start_time": "y"})
     assert res["success"] is False and "khal" in res["spoken_confirmation"]
+
+
+@pytest.mark.parametrize("said,expected", [
+    ("mute", "1"), ("mute the sound", "1"), ("unmute", "0"), ("unmute audio", "0"),
+])
+def test_the_mute_shortcut_follows_the_words_not_toggle(engine, said, expected):
+    # The built-in shortcut sends action "toggle": saying "mute" must never unmute.
+    engine._volume({"action": "toggle", "_raw_user_query": said})
+    assert engine.calls[0] == ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", expected]

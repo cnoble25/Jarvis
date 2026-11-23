@@ -1,11 +1,5 @@
 import os
-import io
-import wave
-import shutil
-import subprocess
-import numpy as np
 import urllib.request
-import sounddevice as sd
 from kokoro_onnx import Kokoro
 
 
@@ -31,11 +25,6 @@ class TTSEngine:
         print(f"[TTSEngine] Loading Kokoro-ONNX model from '{self.model_path}'...", flush=True)
         self.kokoro, self.device = self._load()
         print(f"[TTSEngine] Kokoro-ONNX TTS engine ready on {self.device}.", flush=True)
-
-        # Detect native PipeWire/PulseAudio player (pw-play / paplay) to prevent audio choppiness when music plays concurrently
-        self.player_cmd = shutil.which("pw-play") or shutil.which("paplay") or shutil.which("aplay")
-        if self.player_cmd:
-            print(f"[TTSEngine] Detected native PipeWire audio player: '{self.player_cmd}' (Concurrent audio mixing enabled)", flush=True)
 
     def _load(self):
         """
@@ -89,38 +78,8 @@ class TTSEngine:
         print(f"[TTSEngine] 🔊 Speaking: \"{text}\"", flush=True)
         samples, sample_rate = self.kokoro.create(text, voice=voice, speed=speed, lang="en-us")
 
-        # 1. Primary: Native PipeWire/PulseAudio audio player (pw-play / paplay)
-        # Prevents ALSA/PortAudio xrun buffer underruns when music/videos play simultaneously.
-        if self.player_cmd:
-            temp_dir = "/dev/shm" if os.path.exists("/dev/shm") else "/tmp"
-            wav_path = os.path.join(temp_dir, f"jarvis_tts_{os.getpid()}.wav")
-            try:
-                # Convert float32 numpy samples [-1.0, 1.0] to int16 PCM WAV
-                int16_samples = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
-                with wave.open(wav_path, 'wb') as wf:
-                    wf.setnchannels(1)
-                    wf.setsampwidth(2)
-                    wf.setframerate(sample_rate)
-                    wf.writeframes(int16_samples.tobytes())
-
-                if block:
-                    subprocess.run([self.player_cmd, wav_path], check=False)
-                else:
-                    subprocess.Popen([self.player_cmd, wav_path])
-                return
-            except Exception as e:
-                print(f"[TTSEngine Warning] Native PipeWire player failed: {e}. Falling back to sounddevice.", flush=True)
-            finally:
-                if block and os.path.exists(wav_path):
-                    try:
-                        os.remove(wav_path)
-                    except OSError:
-                        pass
-
-        # 2. Fallback: sounddevice with latency='high' to prevent xruns
-        sd.play(samples, sample_rate, latency='high')
-        if block:
-            sd.wait()
+        from daemon.os_interface import play_samples
+        play_samples(samples, sample_rate, block=block)
 
     def get_available_voices(self) -> list[str]:
         """

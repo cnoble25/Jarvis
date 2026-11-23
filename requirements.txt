@@ -23,6 +23,10 @@ nvidia-cudnn-cu12>=9,<10; sys_platform == "linux"
 kokoro-onnx>=0.3.0
 elevenlabs>=2.0.0
 
+# macOS: the talk shortcut's system-wide key reader (Quartz event tap) and its permission check
+pyobjc-framework-Quartz>=10; sys_platform == "darwin"
+pyobjc-framework-ApplicationServices>=10; sys_platform == "darwin"
+
 # System Process & Utility Inspection
 psutil>=5.9.0
 

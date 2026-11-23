@@ -58,7 +58,7 @@ class ToolRegistry:
                 "id": "app_launcher",
                 "name": "Launch Desktop Application",
                 "version": "1.0.0",
-                "description": "Launches a desktop application on Linux. Cause: User says 'open Steam' or 'launch Firefox'. Effect: Starts and displays the target application window.",
+                "description": "Launches an installed desktop application. Cause: User says 'open Steam' or 'launch Firefox'. Effect: Starts and displays the target application window.",
                 "category": "system",
                 "parameters": {
                     "type": "object",
@@ -72,7 +72,7 @@ class ToolRegistry:
                 },
                 "execution": {
                     "type": "command_template",
-                    "template": "gtk-launch '{app_name}' || gio launch '/usr/share/applications/{app_name}.desktop' || {app_name} &"
+                    "template": "builtin_app_launcher"  # handled in ExecutionEngine through the OS interface
                 },
                 "examples": [
                     {
@@ -175,23 +175,32 @@ class ToolRegistry:
 
     def get_llm_tool_descriptions(self) -> str:
         """
-        Formats all registered custom tools into a clean prompt string for the LLM,
-        including explicit Cause (User Request) and Effect (Tool Action) examples.
+        The tools for the LLM system prompt, compactly: this is sent with every request, so every
+        line costs on every turn. One line each for what it does, its arguments (type shown when
+        it isn't plain text), and an example: "what the user says" -> {args}.
         """
         if not self._tools:
             return "No custom user tools registered."
 
         descriptions = []
         for tool in self._tools.values():
-            clean_desc = tool.description.split(" Cause:")[0].strip()
-            desc = f"- **{tool.id}** ({tool.name}): {clean_desc}\n"
-            desc += f"  Parameters JSON Schema: {json.dumps(tool.parameters.get('properties', {}))}\n"
+            lines = [f"- {tool.id}: {tool.description.split(' Cause:')[0].strip()}"]
+            args = []
+            for name, spec in (tool.parameters.get("properties") or {}).items():
+                spec = spec if isinstance(spec, dict) else {}
+                kind = spec.get("type", "string")
+                if kind == "array":
+                    kind = f"list of {(spec.get('items') or {}).get('type', 'items')}"
+                label = name if kind == "string" else f"{name} ({kind})"
+                if spec.get("enum"):
+                    label += " = " + "|".join(str(v) for v in spec["enum"])
+                desc = str(spec.get("description", "")).strip()
+                args.append(f"{label}: {desc}" if desc else label)
+            lines.append("  args: " + ("; ".join(args) if args else "none"))
             if tool.examples:
                 ex = tool.examples[0]
-                prompt_clean = ex.user_prompt.replace("Cause: ", "").replace("Effect: ", "").strip()
-                desc += f"  Example (Cause & Effect):\n"
-                desc += f"    • Cause (User Request): \"{prompt_clean}\"\n"
-                desc += f"    • Effect (Tool Action): Execute '{tool.id}' with args {json.dumps(ex.expected_args)}\n"
-            descriptions.append(desc)
+                said = ex.user_prompt.replace("Cause: ", "").replace("Effect: ", "").strip()
+                lines.append(f'  e.g. "{said}" -> {json.dumps(ex.expected_args)}')
+            descriptions.append("\n".join(lines))
 
         return "\n".join(descriptions)
