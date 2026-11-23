@@ -920,7 +920,7 @@ class JarvisApplication:
         final_spoken = result.get("final_spoken_summary", "Task complete.")
         # The orchestrator has logged the turn by now: refresh the dashboard's lists.
         self._dashboard_event("turn_logged", {"text": user_text, "reply": final_spoken})
-        if speak_output:
+        if speak_output and not result.get("ignored"):  # ignored: background speech, nothing to say
             self.voice_state = "speaking"
             self.bridge.update_hud_signal.emit("TTS_SPEAKING", final_spoken)
 

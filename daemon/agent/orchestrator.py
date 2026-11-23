@@ -17,6 +17,7 @@ from daemon.memory.profiler_agent import load_user_profile
 from daemon.providers.base import VOLATILE_CONTEXT_TAG, BaseLLMProvider, BaseTTSProvider
 from daemon.providers.llm.ollama_llm_provider import OllamaLLMProvider
 from daemon.agent.fast_path_manager import FastPathManager
+from daemon.agent.pattern_miner import clean_args
 from daemon.agent.tasks import BackgroundTask, TaskBoard, describe_step
 from daemon.agent.approval import approval_needed, is_approval, is_refusal
 from daemon.os_interface import get_os
@@ -350,8 +351,24 @@ class AgentOrchestrator:
                         self.route_listener(label)
                 break
 
-        # Unified Data-Driven Fast-Path Interceptor (System Defaults + Dynamic Learned Rules)
+        # Built-in shortcuts first, then what Jarvis learned from the log (daemon/agent/pattern_miner.py).
         fast_match = None if provider is not self.llm_provider else self.fast_path_manager.match(user_query, active_model_name=self.get_active_model_name())
+        if route_label:
+            meta["served_by"] = {"kind": "claude_code" if route_label == "Claude Code" else "route", "label": route_label}
+        elif fast_match:
+            meta["served_by"] = {"kind": "fast_path", "rule_id": fast_match.get("rule_id")}
+        else:
+            learned = self._match_learned(user_query, meta)
+            if learned and learned["mode"] == "ignore":
+                return self._ignore_noise(user_query, learned, session_id, meta)
+            if learned and learned["mode"] == "active":
+                fast_match = {"rule_id": learned["rule"]["id"], "tool": learned["tool"], "args": learned["args"],
+                              "spoken_summary": learned["rule"].get("spoken_summary", ""), "action_type": "tool"}
+                meta["served_by"] = {"kind": "learned", "rule_id": learned["rule"]["id"]}
+            elif learned:
+                # Shadow: the model still answers; the log keeps what the rule would have done.
+                meta["pattern_prediction"] = {"rule_id": learned["rule"]["id"], "tool": learned["tool"],
+                                              "args": clean_args(learned["args"])}
         first_step = None
         # "Jarvis, ..." ends a Claude follow-up window; anything else said in it goes back to Claude
         # (shortcut commands like "pause music" still run instantly).
@@ -361,6 +378,8 @@ class AgentOrchestrator:
         if followup:
             route_label = "Claude Code"
             meta["route"] = {"label": "Claude Code", "model": self.claude_code_model(), "followup": True}
+            meta["served_by"] = {"kind": "claude_code", "label": "Claude Code", "followup": True}
+            meta.pop("pattern_prediction", None)
             print(f"[AgentOrchestrator] Follow-up to Claude Code: \"{user_query}\"", flush=True)
             if self.route_listener:
                 self.route_listener("Claude Code")
@@ -581,6 +600,7 @@ class AgentOrchestrator:
                     parsed = first_step  # a shortcut that still needs the user's OK
                 else:
                     parsed = provider.process_voice_query(user_query, history, system_prompt)
+                model_decided = step == 1 and not first_step
                 print(f"[AgentOrchestrator ReAct Step {step}] LLM Response: {parsed}", flush=True)
                 if task.cancel_event.is_set():
                     status, final_spoken = "cancelled", "Stopped."
@@ -610,6 +630,11 @@ class AgentOrchestrator:
                         tool_name = "none"
 
                 trail.append({"role": "assistant", "content": json.dumps(last_parsed)})
+                if model_decided and "served_by" not in meta:
+                    # What the model chose for this request: the shortcut learner's evidence.
+                    info = provider.get_provider_info() if hasattr(provider, "get_provider_info") else {}
+                    meta["served_by"] = {"kind": "llm", "model": info.get("model_name", "")}
+                    meta["llm_decision"] = {"tool": tool_name or "none", "args": clean_args(tool_args)}
 
                 if tool_name in ["none", "None", "", None]:
                     final_spoken = spoken_summary or "I'm here to help."
@@ -752,6 +777,34 @@ class AgentOrchestrator:
         task.settled.set()
         update("task_finished")
         return last_result
+
+    def _match_learned(self, user_query: str, meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """A learned rule for this request (see FastPathManager.match_learned), or None."""
+        alts = meta.get("heard_alternatives") or []
+        confidence = None
+        if alts and meta.get("source") != "typed":
+            try:
+                confidence = max(float(a.get("probability", 0)) for a in alts)
+            except (TypeError, ValueError):
+                confidence = None
+        match_learned = getattr(self.fast_path_manager, "match_learned", None)
+        if match_learned is None:
+            return None
+        try:
+            return match_learned(user_query, heard_confidence=confidence)
+        except Exception as err:
+            print(f"[AgentOrchestrator Warning] Learned rule matching failed: {err}", flush=True)
+            return None
+
+    def _ignore_noise(self, user_query: str, learned: Dict[str, Any], session_id: str,
+                      meta: Dict[str, Any]) -> Dict[str, Any]:
+        """Background speech Jarvis has learned isn't meant for it: no model call, no reply."""
+        rule_id = learned["rule"]["id"]
+        print(f"[AgentOrchestrator] Ignoring \"{user_query}\": low-confidence speech that was never a request "
+              f"(rule {rule_id}).", flush=True)
+        self.logger.log_turn(session_id, user_query, tool_executed="ignored", spoken_response="",
+                             meta={**meta, "served_by": {"kind": "noise", "rule_id": rule_id}, "outcome": "ok"})
+        return {"success": True, "tool": "none", "ignored": True, "final_spoken_summary": ""}
 
     def _execute_fast_path_match(
         self,

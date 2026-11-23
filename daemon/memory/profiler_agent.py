@@ -13,7 +13,6 @@ import urllib.error
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from daemon.memory.transcript_logger import TranscriptLogger
-from daemon.memory.fast_path_miner import FastPathMiner
 
 PROFILE_PATH = Path.home() / ".config" / "jarvis" / "user_profile.md"
 
@@ -56,10 +55,18 @@ class MemoryProfilerAgent:
         self.profile_path.parent.mkdir(parents=True, exist_ok=True)
         self.batch_size = batch_size
         self.llm_provider = llm_provider
-        self.miner = FastPathMiner()
-
-        self._last_profiled_count = 0
+        # The newest turn the profile has seen: counting turns doesn't work once old logs are pruned.
+        self._last_profiled_id: Optional[str] = None
         self._lock = threading.Lock()
+
+    def _new_turns(self, transcripts: List[Dict[str, Any]]) -> int:
+        """Turns logged since the last profile update."""
+        if self._last_profiled_id is None:
+            return len(transcripts)
+        for i in range(len(transcripts) - 1, -1, -1):
+            if transcripts[i].get("record_id") == self._last_profiled_id:
+                return len(transcripts) - 1 - i
+        return len(transcripts)  # that turn was pruned: everything left is newer
 
     def set_llm_provider(self, provider: Any):
         self.llm_provider = provider
@@ -219,7 +226,7 @@ class MemoryProfilerAgent:
         with self._lock:
             transcripts = self.logger.read_all_transcripts()
             total_turns = len(transcripts)
-            new_turns = total_turns - self._last_profiled_count
+            new_turns = self._new_turns(transcripts)
 
             if total_turns == 0:
                 return {"success": False, "reason": "No transcript logs available."}
@@ -239,7 +246,7 @@ class MemoryProfilerAgent:
             try:
                 with open(self.profile_path, "w", encoding="utf-8") as f:
                     f.write(extracted_md + "\n")
-                self._last_profiled_count = total_turns
+                self._last_profiled_id = transcripts[-1].get("record_id")
                 print(f"[MemoryProfiler] Updated user profile written to {self.profile_path}", flush=True)
                 return {"success": True, "profile_path": str(self.profile_path), "content": extracted_md}
             except Exception as e:
@@ -267,8 +274,7 @@ class MemoryProfilerAgent:
         Event callback invoked after every logged turn. Checks if batch_size threshold is reached.
         """
         transcripts = self.logger.read_all_transcripts()
-        new_turns = len(transcripts) - self._last_profiled_count
-        if new_turns >= self.batch_size:
+        if self._new_turns(transcripts) >= self.batch_size:
             threading.Thread(
                 target=self.update_profile,
                 kwargs={"force": False},

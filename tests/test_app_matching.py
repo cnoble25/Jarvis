@@ -78,25 +78,25 @@ def test_turn_outcome_beats_stderr():
     assert old["status"] == "failed"
 
 
-def test_learner_skips_failed_and_missing_apps(monkeypatch):
+def test_learner_skips_failed_and_missing_apps(monkeypatch, tmp_path):
     import daemon.agent.fast_path_agent as fpa
+    from daemon.agent.fast_path_manager import FastPathManager
     monkeypatch.setattr(fpa, "_app_exists", lambda name: name == "discord")
 
-    class Mgr:
-        learned_rules = []
-        def __init__(self): self.added = []
-        def prune_unlaunchable_app_rules(self): return []
-        def add_learned_rule(self, **k): self.added.append(k); return k
-        def save_learned_rules(self): pass
-
-    mgr = Mgr()
-    agent = fpa.FastPathCreatorAgent(fast_path_manager=mgr)
+    mgr = FastPathManager(rules_path=tmp_path / "rules.json")
+    mgr.handled_by_builtin = lambda query: False  # not this computer's installed apps
+    agent = fpa.FastPathCreatorAgent(fast_path_manager=mgr, required_args={
+        "app_launcher": ["app_name"], "execute_terminal_command": ["command"], "media_play_pause": []})
     turns = (
         [{"user_query": "open up figma please", "tool_executed": "app_launcher", "tool_args": {"app_name": "figma"}, "outcome": "ok"}] * 4
         + [{"user_query": "install that skill now", "tool_executed": "execute_terminal_command", "tool_args": {"command": "x"}, "outcome": "ok"}] * 4
         + [{"user_query": "pause the spotify music", "tool_executed": "media_play_pause", "tool_args": {}, "outcome": "failed"}] * 4
-        + [{"user_query": "open discord app", "tool_executed": "app_launcher", "tool_args": {"app_name": "discord"}, "outcome": "ok"}] * 4
+        + [{"user_query": "launch discord app", "tool_executed": "app_launcher", "tool_args": {"app_name": "discord"}, "outcome": "ok"}] * 4
     )
-    agent.update_fast_paths(turns)
-    assert [r["tool"] for r in mgr.added] == ["app_launcher"]
-    assert mgr.added[0]["args"]["app_name"] == "discord"
+    rules = agent.update_fast_paths(turns)
+    assert [(r["tool"], r["status"]) for r in rules] == [("app_launcher", "active")]
+    assert pm_match(mgr, "launch discord app")["args"]["app_name"] == "discord"
+
+
+def pm_match(mgr, query):
+    return mgr.match_learned(query, app_exists=lambda name: name == "discord")

@@ -1,14 +1,17 @@
 """
-Dynamic & Default Fast-Path Manager (Sub-Task 3.3)
-Manages default system fast-path query rules and user-learned dynamic fast-path shortcuts.
-Persists learned rules to ~/.config/jarvis/fast_path_rules.json.
+Fast paths: requests answered without asking the model.
+Built-in phrase rules live here; learned rules are mined from the transcript log by
+daemon/agent/pattern_miner.py. Both persist to ~/.config/jarvis/fast_path_rules.json.
 """
 
 import os
 import re
 import json
+import threading
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Callable, Dict, Any, List, Optional
+
+from daemon.agent.pattern_miner import NEVER_LEARN, match_rules, normalize
 
 RULES_FILE = Path(os.path.expanduser("~/.config/jarvis/fast_path_rules.json"))
 
@@ -173,26 +176,44 @@ DEFAULT_SYSTEM_RULES: List[Dict[str, Any]] = [
 
 
 class FastPathManager:
-    def __init__(self, rules_path: Optional[Path] = None):
+    """
+    Built-in shortcuts (DEFAULT_SYSTEM_RULES, matched by phrase) plus what Jarvis learned:
+      mined    rules re-mined from the transcript log after every turn (daemon/agent/pattern_miner.py):
+               active ones skip the model, shadow ones are only checked against it, noise ones ignore
+               low-confidence background speech
+      legacy   shortcuts from before pattern mining, matched against the whole request
+      rejected ids of mined rules the user deleted, so mining never brings them back
+    """
+
+    def __init__(self, rules_path: Optional[Path] = None, persist: bool = True):
         self.rules_path = rules_path or RULES_FILE
-        self.learned_rules: List[Dict[str, Any]] = []
+        self.persist = persist  # False: read the rules file but never write it (reports)
+        self.learned_rules: List[Dict[str, Any]] = []  # legacy
+        self.mined_rules: List[Dict[str, Any]] = []
+        self.rejected: List[str] = []
+        self._lock = threading.Lock()
         self.load_learned_rules()
 
     def load_learned_rules(self) -> List[Dict[str, Any]]:
-        """
-        Loads learned fast-path rules from disk.
-        """
+        data: Any = []
         if self.rules_path.exists():
             try:
                 with open(self.rules_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    if isinstance(data, list):
-                        self.learned_rules = data
             except Exception as e:
                 print(f"[FastPathManager Warning] Failed loading rules: {e}", flush=True)
-                self.learned_rules = []
-        else:
-            self.learned_rules = []
+        if isinstance(data, list):  # the file before pattern mining: a list of phrase shortcuts
+            data = {"legacy": data}
+        legacy = [r for r in data.get("legacy", []) if isinstance(r, dict)]
+        unsafe = [r for r in legacy if r.get("tool") in NEVER_LEARN]
+        for r in unsafe:
+            print(f"[FastPathManager] Dropped learned shortcut {r.get('triggers')} -> {r.get('tool')}: "
+                  "that tool is never replayed without the model.", flush=True)
+        self.learned_rules = [r for r in legacy if r not in unsafe]
+        self.mined_rules = [r for r in data.get("mined", []) if isinstance(r, dict)]
+        self.rejected = list(data.get("rejected", []))
+        if unsafe:
+            self.save_learned_rules()
         return self.learned_rules
 
     def prune_unlaunchable_app_rules(self) -> List[str]:
@@ -213,22 +234,36 @@ class FastPathManager:
         return [r.get("id") for r in removed]
 
     def save_learned_rules(self):
-        """
-        Persists learned fast-path rules to disk.
-        """
+        if not self.persist:
+            return
         try:
-            os.makedirs(self.rules_path.parent, exist_ok=True)
-            with open(self.rules_path, "w", encoding="utf-8") as f:
-                json.dump(self.learned_rules, f, indent=2)
-            print(f"[FastPathManager] Saved {len(self.learned_rules)} learned rules to {self.rules_path}", flush=True)
+            with self._lock:
+                os.makedirs(self.rules_path.parent, exist_ok=True)
+                tmp = self.rules_path.with_suffix(".tmp")
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump({"version": 2, "legacy": self.learned_rules, "mined": self.mined_rules,
+                               "rejected": self.rejected}, f, indent=2)
+                os.replace(tmp, self.rules_path)
         except Exception as e:
             print(f"[FastPathManager Error] Failed saving rules: {e}", flush=True)
 
+    def set_mined_rules(self, rules: List[Dict[str, Any]]) -> bool:
+        """Replace the mined rules (the miner recomputes all of them each time). True if anything changed."""
+        summary = lambda rs: [(r.get("id"), r.get("status"), r.get("support"), r.get("conflicts")) for r in rs]
+        if summary(rules) == summary(self.mined_rules):
+            return False
+        before = {r["id"]: r.get("status") for r in self.mined_rules}
+        for r in rules:
+            if before.get(r["id"]) != r.get("status"):
+                print(f"[FastPathManager] Learned rule \"{r['triggers'][0]}\" -> {r['tool']} is now {r['status']} "
+                      f"(support {r['support']}).", flush=True)
+        self.mined_rules = list(rules)
+        self.save_learned_rules()
+        return True
+
     def get_all_rules(self) -> List[Dict[str, Any]]:
-        """
-        Returns combined system default rules + dynamic learned rules.
-        """
-        return DEFAULT_SYSTEM_RULES + self.learned_rules
+        """Built-in rules, legacy learned shortcuts, then mined rules (for the dashboard)."""
+        return DEFAULT_SYSTEM_RULES + self.learned_rules + self.mined_rules
 
     def add_learned_rule(
         self,
@@ -240,38 +275,21 @@ class FastPathManager:
         name: str = "Learned Fast-Path Rule",
         auto_save: bool = True
     ) -> Dict[str, Any]:
-        """
-        Adds or updates a dynamic user-learned fast-path rule.
-        """
+        """Add (or extend) a phrase shortcut by hand. It matches only the whole request."""
         import uuid
-        rule_id = f"learned_{uuid.uuid4().hex[:8]}"
-
-        # Clean triggers
         clean_triggers = [t.lower().strip() for t in triggers if t.strip()]
-
-        # Check for existing rule with overlapping triggers to update
         for existing in self.learned_rules:
             if any(t in existing.get("triggers", []) for t in clean_triggers):
-                existing["triggers"] = list(set(existing["triggers"] + clean_triggers))
-                existing["tool"] = tool
-                existing["args"] = args or {}
-                existing["spoken_summary"] = spoken_summary
-                existing["frequency"] = existing.get("frequency", 1) + 1
+                existing["triggers"] = list(dict.fromkeys(existing["triggers"] + clean_triggers))
+                existing.update(tool=tool, args=args or {}, spoken_summary=spoken_summary,
+                                frequency=existing.get("frequency", 1) + 1)
                 if auto_save:
                     self.save_learned_rules()
                 return existing
-
         new_rule = {
-            "id": rule_id,
-            "name": name,
-            "triggers": clean_triggers,
-            "action_type": action_type,  # 'tool' | 'static_response'
-            "tool": tool,
-            "args": args or {},
-            "spoken_summary": spoken_summary,
-            "match_type": "contains_any",
-            "is_system": False,
-            "frequency": 1
+            "id": f"learned_{uuid.uuid4().hex[:8]}", "name": name, "triggers": clean_triggers,
+            "action_type": action_type, "tool": tool, "args": args or {}, "spoken_summary": spoken_summary,
+            "match_type": "exact", "is_system": False, "frequency": 1,
         }
         self.learned_rules.append(new_rule)
         if auto_save:
@@ -279,9 +297,12 @@ class FastPathManager:
         return new_rule
 
     def delete_rule(self, rule_id: str) -> bool:
-        """
-        Deletes a learned rule by ID.
-        """
+        """Delete a learned rule. A mined one is remembered as rejected so it isn't learned again."""
+        if any(r.get("id") == rule_id for r in self.mined_rules):
+            self.mined_rules = [r for r in self.mined_rules if r.get("id") != rule_id]
+            self.rejected.append(rule_id)
+            self.save_learned_rules()
+            return True
         initial_len = len(self.learned_rules)
         self.learned_rules = [r for r in self.learned_rules if r.get("id") != rule_id]
         if len(self.learned_rules) < initial_len:
@@ -289,14 +310,36 @@ class FastPathManager:
             return True
         return False
 
-    def match(self, user_query: str, active_model_name: str = "Jarvis") -> Optional[Dict[str, Any]]:
+    def match_learned(self, user_query: str, heard_confidence: Optional[float] = None,
+                      app_exists: Optional[Callable[[str], bool]] = None) -> Optional[Dict[str, Any]]:
         """
-        Evaluates query against system rules and dynamic learned rules.
+        What Jarvis learned about this exact request: {"rule", "mode", "tool", "args"} with mode
+        active (run it, skip the model), shadow (log a prediction, ask the model anyway) or ignore
+        (background speech). heard_confidence: speech recognition's top-guess probability, None if typed.
+        """
+        words = " ".join(normalize(user_query))
+        for rule in self.learned_rules:
+            if words and words in {" ".join(normalize(t)) for t in rule.get("triggers", [])}:
+                return {"rule": rule, "mode": "active", "tool": rule.get("tool", "none"),
+                        "args": dict(rule.get("args", {}))}
+        if app_exists is None:
+            def app_exists(name: str) -> bool:
+                from daemon.tools.app_scanner import get_app_scanner
+                return get_app_scanner().find_app(name) is not None
+        return match_rules(self.mined_rules, user_query, app_exists, heard_confidence)
+
+    def handled_by_builtin(self, user_query: str) -> bool:
+        """A built-in shortcut already answers this request (so there's nothing to learn from it)."""
+        return self.match(user_query, quiet=True) is not None
+
+    def match(self, user_query: str, active_model_name: str = "Jarvis", quiet: bool = False) -> Optional[Dict[str, Any]]:
+        """
+        Evaluates query against the built-in phrase rules and installed-app launching.
         Returns execution payload dictionary if matched, or None.
         """
         q_clean = re.sub(r"[^\w\s-]", "", user_query.lower()).strip()
         q_nobrand = re.sub(r"^(hey\s+)?jarvis[\s,]+", "", user_query.lower()).strip()
-        all_rules = self.get_all_rules()
+        all_rules = DEFAULT_SYSTEM_RULES  # learned rules: match_learned()
 
         # Check for compound query connectors (e.g. 'and', 'then', 'also', 'plus', 'while', 'but', etc.)
         compound_connectors = [" and ", " then ", " also ", " plus ", " as well as ", " while ", " but ", " before ", " after ", " with "]
@@ -319,7 +362,8 @@ class FastPathManager:
 
         # If query has compound structure, multi-clause verbs, or multiple action verbs, bypass fast-path for LLM Orchestrator multi-step handling
         if has_compound_connectors or has_multi_clause_verbs or verb_count > 1:
-            print(f"[FastPathManager] Compound/Multi-verb query detected ('{user_query}'). Bypassing fast-path for LLM orchestration.", flush=True)
+            if not quiet:
+                print(f"[FastPathManager] Compound/Multi-verb query detected ('{user_query}'). Bypassing fast-path for LLM orchestration.", flush=True)
             return None
 
         # 1. Match against registered system & learned rules

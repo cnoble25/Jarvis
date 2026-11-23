@@ -20,6 +20,7 @@ Only one Jarvis runs at a time. A second launch asks the running one (over `/tmp
 - `daemon/os_interface/`: **everything OS-specific lives here.** `base.py` defines `OSInterface`; `linux.py` and `macos.py` implement it; `keyboard_linux.py` (evdev) and `keyboard_macos.py` (Quartz event tap) read the keyboard; `audio.py` plays speech. Call `get_os()`. Tests swap in a fake with `set_os()`.
 - `daemon/ipc/hotkey_interceptor.py`: what "holding the shortcut" means (held keys add up, a 200ms release buffer, live rebinding). It's the same on every OS; it gets key events from `get_os().keyboard(...)`.
 - `daemon/agent/`: the orchestrator (system prompt, tool routing), fast-path rules, approval of risky commands (`approval.py`), and background tasks.
+- `daemon/agent/pattern_miner.py`: learned shortcuts. After each turn it re-mines the whole transcript log for requests the model always answers the same way (templates like `open {app_name}`). A rule only skips the model after 4 agreeing decisions and zero conflicts; until then it's in "shadow" (its prediction is logged next to the model's). Noise rules ignore repeated low-confidence speech. `python -m daemon.agent.pattern_miner` prints a read-only report.
 - `daemon/providers/`: the STT/LLM/TTS provider registry (Anthropic, Claude Code, Ollama, Gemini, ElevenLabs, Kokoro, Faster-Whisper).
 - `daemon/tools/`: `execution_engine.py` (built-in tools), `registry.py` (JSON tool manifests), `daily_commands.json`, and `app_scanner.py`.
 - User state lives in `~/.config/jarvis/` (settings, tools, macros, memory profile, fast-path rules). Logs and transcripts are in `~/.local/share/jarvis/`.
@@ -33,6 +34,7 @@ Only one Jarvis runs at a time. A second launch asks the running one (over `/tmp
 
 ## Gotchas
 
+- Each turn's transcript records `served_by` (`fast_path`, `learned`, `noise`, `llm`, `claude_code`, `route`) and, for model turns, `llm_decision`, the model's own first choice. The miner learns only from `llm_decision`, never from what a shortcut did. Transcripts are kept for 90 days.
 - On every start, `ToolRegistry` copies `daemon/tools/daily_commands.json` over `~/.config/jarvis/tools/daily_commands.json`. Running an older checkout downgrades the tools.
 - macOS permissions are granted to the app Jarvis runs from: your terminal when you start it by hand, Python itself when it starts at login. The talk shortcut needs Accessibility (or Input Monitoring); the Microphone, Automation and Screen Recording prompts come up the first time each is used. The default shortcut on macOS is Option+Space, because Cmd+Space opens Spotlight.
 - `locked_in_mode` needs the separate `locked-in` CLI (found on PATH, next to the venv's Python, or via `$JARVIS_LOCKED_IN`). It isn't installed on the Mac.

@@ -1415,7 +1415,7 @@ function renderFastPathRules() {
       el("div", { class: "rule-main" }, [
         el("div", { class: "rule-title" }, [
           el("strong", { text: ruleName(rule) }),
-          el("span", { class: `tag ${rule.is_system ? "" : "tag-learned"}`, text: rule.is_system ? "Built in" : "Learned" }),
+          el("span", ruleTag(rule)),
           dupes.has(rule.id) ? el("span", { class: "tag", title: "Another learned shortcut already does exactly this.", text: "Duplicate" }) : null,
         ]),
         el("div", { class: "rule-triggers" }, [triggerList, more]),
@@ -1465,8 +1465,18 @@ function ruleName(rule) {
 /* Phrases with "_" read as spoken words. */
 const spokenPhrase = (t) => String(t).replace(/_/g, " ");
 
+/* Built in, learned (skips the model), watching (checked against the model, not used yet) or ignored speech. */
+function ruleTag(rule) {
+  if (rule.is_system) return { class: "tag", text: "Built in" };
+  const seen = rule.support ? ` Matched what the model did ${rule.support} time${rule.support === 1 ? "" : "s"}.` : "";
+  if (rule.kind === "noise") return { class: "tag", text: "Ignored", title: `Background speech: heard faintly, never a request.${seen}` };
+  if (rule.status === "shadow") return { class: "tag", text: "Watching", title: `Not used yet: Jarvis still asks the model and checks this rule against it.${seen}` };
+  return { class: "tag tag-learned", text: "Learned", title: `Answers without asking the model.${seen}` };
+}
+
 /* What the shortcut actually does, resolving macro scripts to their macro names. */
 function ruleTarget(rule) {
+  if (rule.kind === "noise") return ["Stays quiet when this is heard faintly"];
   const cmd = rule.args && rule.args.command;
   if (rule.tool === "execute_terminal_command" && cmd) {
     const macro = String(cmd).match(/\/macros\/([^/]+)\.sh$/);
